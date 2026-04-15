@@ -4,6 +4,7 @@ const path = require('path');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
+app.set('trust proxy', 1); // needed for correct IP resolution behind Docker NAT
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -64,14 +65,19 @@ app.post('/chat', chatLimiter, async (req, res) => {
       messages: session.messages,
     });
 
-    const reply = response.content[0].text;
+    const reply = response.content?.[0]?.text;
+    if (!reply) {
+      session.messages.pop();
+      return res.status(502).json({ error: 'Unexpected response from Claude API' });
+    }
     session.messages.push({ role: 'assistant', content: reply });
 
     res.json({ reply, sessionId });
   } catch (err) {
     console.error('Claude API error:', err.message);
     session.messages.pop();
-    res.status(500).json({ error: err.message });
+    const status = err.status ?? 500;
+    res.status(status).json({ error: err.message });
   }
 });
 
