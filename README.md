@@ -2,6 +2,8 @@
 
 A local Claude API server running in Docker. Always available at `http://localhost:3000`.
 
+**Features:** streaming responses · persistent conversation history · rate limiting · context window management
+
 ## Setup
 
 **1. Clone the repo**
@@ -45,7 +47,7 @@ curl http://localhost:3000/health
 ```
 
 ### `POST /chat`
-Send a message to Claude. Conversation history is kept in memory per `sessionId` and automatically expires after 1 hour of inactivity.
+Send a message to Claude. Conversation history is persisted to SQLite per `sessionId`, survives container restarts, and expires after 1 hour of inactivity.
 
 ```bash
 curl -X POST http://localhost:3000/chat \
@@ -78,6 +80,24 @@ Example with all fields:
 }
 ```
 
+### `POST /chat/stream`
+Same as `/chat` but streams the response as [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) so you receive text as it is generated.
+
+```bash
+curl -s -N -X POST http://localhost:3000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What is Docker?", "sessionId": "my-session"}'
+```
+
+Each event is a JSON object on a `data:` line:
+```
+data: {"chunk":"Docker is..."}
+data: {"chunk":" a platform"}
+data: {"done":true,"sessionId":"my-session"}
+```
+
+The web UI at `http://localhost:3000` uses this endpoint by default.
+
 ### `POST /clear`
 Clears the conversation history for a session.
 
@@ -90,7 +110,7 @@ curl -X POST http://localhost:3000/clear \
 
 ## Rate Limiting
 
-The `/chat` endpoint is rate limited to **30 requests per minute per IP**. Exceeding the limit returns a `429` response:
+Both `/chat` and `/chat/stream` are rate limited to **30 requests per minute per IP**. Exceeding the limit returns a `429` response:
 
 ```json
 {"error": "Too many requests, please slow down."}
@@ -140,7 +160,15 @@ You / Your apps
       │
       ▼
 http://localhost:3000   ← Docker container (always on)
-      │
+      │                    └─ SQLite DB (./data/sessions.db)
       ▼
  Anthropic Claude API
 ```
+
+## Data & persistence
+
+Conversation history is stored in `./data/sessions.db` (SQLite), mounted into the container via a Docker volume. This means:
+- History survives `docker compose restart`
+- History is lost only on `docker compose down -v` or manual deletion of `./data/`
+- Sessions idle for more than 1 hour are purged automatically
+- Conversations that grow beyond ~80 000 characters have their oldest turns trimmed to stay within Claude's context window
