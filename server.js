@@ -58,18 +58,29 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 // Context window management
 // ---------------------------------------------------------------------------
+function contentLen(m) {
+  if (typeof m.content === 'string') return m.content.length;
+  if (Array.isArray(m.content)) return m.content.reduce((s, b) => s + (b.text?.length || 0), 0);
+  return 0;
+}
+
 function trimMessages(messages) {
-  // Remove oldest pairs (user+assistant) until total chars are within limit.
-  // Always keep at least the last user message.
   let msgs = [...messages];
   while (msgs.length > 1) {
-    const total = msgs.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    const total = msgs.reduce((sum, m) => sum + contentLen(m), 0);
     if (total <= MAX_CTX_CHARS) break;
-    // Drop the oldest two messages (one user + one assistant turn)
     msgs.splice(0, 2);
     console.log('Context trimmed: removed oldest turn to stay within limit');
   }
   return msgs;
+}
+
+// Strip base64 image data before writing to SQLite
+function serializeForDb(messages) {
+  return messages.map(m => {
+    if (!Array.isArray(m.content)) return m;
+    return { ...m, content: m.content.map(b => b.type === 'image' ? { type: 'text', text: '[uploaded image]' } : b) };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -92,11 +103,14 @@ app.get('/health', (req, res) => {
 
 // Blocking chat (backward-compatible)
 app.post('/chat', chatLimiter, async (req, res) => {
-  const { message, sessionId = 'default', system } = req.body;
+  const { message, sessionId = 'default', system, images } = req.body;
   if (!message) return res.status(400).json({ error: 'message is required' });
 
   const messages = getSession(sessionId);
-  messages.push({ role: 'user', content: message });
+  const userContent = (images?.length)
+    ? [...images.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } })), { type: 'text', text: message }]
+    : message;
+  messages.push({ role: 'user', content: userContent });
   const trimmed = trimMessages(messages);
 
   try {
@@ -111,7 +125,7 @@ app.post('/chat', chatLimiter, async (req, res) => {
     if (!reply) return res.status(502).json({ error: 'Unexpected response from Claude API' });
 
     trimmed.push({ role: 'assistant', content: reply });
-    saveSession(sessionId, trimmed);
+    saveSession(sessionId, serializeForDb(trimmed));
     res.json({ reply, sessionId });
   } catch (err) {
     console.error('Claude API error:', err.message);
@@ -122,11 +136,14 @@ app.post('/chat', chatLimiter, async (req, res) => {
 
 // Streaming chat via Server-Sent Events
 app.post('/chat/stream', chatLimiter, async (req, res) => {
-  const { message, sessionId = 'default', system } = req.body;
+  const { message, sessionId = 'default', system, images } = req.body;
   if (!message) return res.status(400).json({ error: 'message is required' });
 
   const messages = getSession(sessionId);
-  messages.push({ role: 'user', content: message });
+  const userContent = (images?.length)
+    ? [...images.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } })), { type: 'text', text: message }]
+    : message;
+  messages.push({ role: 'user', content: userContent });
   const trimmed = trimMessages(messages);
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -152,7 +169,7 @@ app.post('/chat/stream', chatLimiter, async (req, res) => {
 
     if (fullReply) {
       trimmed.push({ role: 'assistant', content: fullReply });
-      saveSession(sessionId, trimmed);
+      saveSession(sessionId, serializeForDb(trimmed));
     }
     res.write(`data: ${JSON.stringify({ done: true, sessionId })}\n\n`);
   } catch (err) {
@@ -161,6 +178,29 @@ app.post('/chat/stream', chatLimiter, async (req, res) => {
   } finally {
     res.end();
   }
+});
+
+// List recent sessions
+app.get('/sessions', (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, messages, last_accessed FROM sessions
+    ORDER BY last_accessed DESC LIMIT 50
+  `).all();
+  res.json(rows.map(r => {
+    const msgs = JSON.parse(r.messages);
+    const first = msgs.find(m => m.role === 'user');
+    const preview = typeof first?.content === 'string'
+      ? first.content.slice(0, 80)
+      : (first?.content?.find(b => b.type === 'text')?.text?.slice(0, 80) || '');
+    return { id: r.id, lastAccessed: r.last_accessed, preview, count: msgs.length };
+  }));
+});
+
+// Get messages for a session
+app.get('/sessions/:id/messages', (req, res) => {
+  const row = stmtGet.get(req.params.id);
+  if (!row) return res.json([]);
+  res.json(JSON.parse(row.messages));
 });
 
 // Clear a session
