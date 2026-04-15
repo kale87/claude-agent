@@ -169,19 +169,54 @@
       inputEl.style.height = 'auto';
       sendBtn.disabled = true;
       addMessage('user', message);
-      const thinking = addMessage('thinking', 'Claude is thinking...');
+
+      // Create the assistant bubble immediately so text streams into it
+      const empty = document.getElementById('emptyState');
+      if (empty) empty.remove();
+      const replyEl = document.createElement('div');
+      replyEl.className = 'message assistant';
+      messagesEl.appendChild(replyEl);
+      scrollToBottom();
+
       try {
-        const res = await fetch('/chat', {
+        const res = await fetch('/chat/stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message, sessionId }),
         });
-        const data = await res.json();
-        thinking.remove();
-        addMessage('assistant', data.error ? 'Error: ' + data.error : data.reply);
+
+        if (!res.ok) {
+          const data = await res.json();
+          replyEl.textContent = 'Error: ' + (data.error || res.statusText);
+          sendBtn.disabled = false;
+          inputEl.focus();
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete last line
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = JSON.parse(line.slice(6));
+            if (payload.chunk) {
+              replyEl.textContent += payload.chunk;
+              scrollToBottom();
+            }
+            if (payload.error) {
+              replyEl.textContent = replyEl.textContent || ('Error: ' + payload.error);
+            }
+          }
+        }
       } catch (err) {
-        thinking.remove();
-        addMessage('assistant', 'Could not reach the agent. Is it running?');
+        replyEl.textContent = 'Could not reach the agent. Is it running?';
       }
       sendBtn.disabled = false;
       inputEl.focus();
