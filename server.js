@@ -184,16 +184,31 @@ app.post('/chat/stream', chatLimiter, async (req, res) => {
 app.get('/sessions', (req, res) => {
   const rows = db.prepare(`
     SELECT id, messages, last_accessed FROM sessions
+    WHERE id LIKE 'ui-%'
     ORDER BY last_accessed DESC LIMIT 50
   `).all();
   res.json(rows.map(r => {
     const msgs = JSON.parse(r.messages);
-    const first = msgs.find(m => m.role === 'user');
-    const preview = typeof first?.content === 'string'
-      ? first.content.slice(0, 80)
-      : (first?.content?.find(b => b.type === 'text')?.text?.slice(0, 80) || '');
+    // Find the first user message with meaningful text (not just an image placeholder)
+    let preview = '';
+    let imageOnly = false;
+    for (const m of msgs) {
+      if (m.role !== 'user') continue;
+      let text = '';
+      if (typeof m.content === 'string') {
+        text = m.content;
+      } else if (Array.isArray(m.content)) {
+        text = m.content
+          .filter(b => b.type === 'text' && b.text !== '[uploaded image]')
+          .map(b => b.text).join(' ');
+        if (!text.trim()) imageOnly = true;
+      }
+      text = text.trim();
+      if (text && text !== '(see attached images)') { preview = text.slice(0, 80); break; }
+    }
+    if (!preview) preview = imageOnly ? '\uD83D\uDCF7 Image conversation' : '';
     return { id: r.id, lastAccessed: r.last_accessed, preview, count: msgs.length };
-  }));
+  }).filter(s => s.count > 0));
 });
 
 // Get messages for a session
