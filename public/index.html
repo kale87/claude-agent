@@ -210,6 +210,26 @@
     .code-block pre { margin: 0; padding: 14px 16px; overflow-x: auto; }
     .code-block pre code { background: none !important; border: none !important; padding: 0 !important; font-size: 1em; }
 
+    /* History loading — suppress animations and show loading state */
+    #messages.loading .msg-row { animation: none !important; }
+    .hist-loader {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted); font-size: 13px; gap: 8px;
+    }
+    .hist-loader::before {
+      content: ''; width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid var(--border-h); border-top-color: var(--accent);
+      animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* Image placeholder in history */
+    .img-placeholder {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 6px;
+      background: rgba(255,255,255,.15); font-size: 12px;
+      color: rgba(255,255,255,.8); margin-bottom: 6px;
+    }
+
     /* Streaming cursor */
     .cursor { display: inline-block; width: 2px; height: 1.1em; background: var(--accent); margin-left: 2px; vertical-align: text-bottom; border-radius: 1px; animation: blink 1s step-end infinite; }
     @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
@@ -402,19 +422,44 @@ function switchSession(id) {
   sessionId = id;
   attachments = [];
   renderAttachBar();
-  clearMsgs();
+
+  // Immediately highlight the clicked session in the sidebar
+  document.querySelectorAll('.sess-item').forEach(function(el) {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+
+  // Show loading spinner — no blank flash
+  msgEl.innerHTML = '<div class="hist-loader">Loading conversation</div>';
+
   fetch('/sessions/' + encodeURIComponent(id) + '/messages')
     .then(function(r) { return r.json(); })
     .then(function(msgs) {
-      if (!msgs.length) { showEmpty(); return; }
+      msgEl.innerHTML = ''; // clear loader
+      if (!msgs.length) { showEmpty(); loadSessions(); return; }
+
+      // Disable animations while rendering history
+      msgEl.classList.add('loading');
       msgs.forEach(function(m) {
-        var text = typeof m.content === 'string' ? m.content
-          : ((m.content.find(function(b) { return b.type === 'text'; }) || {}).text || '');
-        if (m.role === 'user') addUserBubble(text, []);
-        else addAssistantBubble(text);
+        var rawContent = m.content;
+        var text = typeof rawContent === 'string'
+          ? rawContent
+          : ((rawContent.find(function(b) { return b.type === 'text'; }) || {}).text || '');
+        var hadImage = Array.isArray(rawContent) &&
+          rawContent.some(function(b) { return b.type === 'text' && b.text === '[uploaded image]'; });
+        if (m.role === 'user') {
+          // Pass a chip so the image placeholder shows in the bubble
+          addUserBubble(text || '', hadImage ? [{ type: 'image-placeholder' }] : []);
+        } else {
+          if (text) addAssistantBubble(text);
+        }
       });
-    }).catch(function() { showEmpty(); });
-  loadSessions();
+      // Re-enable animations after paint, then scroll to bottom
+      requestAnimationFrame(function() {
+        msgEl.classList.remove('loading');
+        msgEl.scrollTop = msgEl.scrollHeight;
+      });
+      loadSessions();
+    }).catch(function() { msgEl.innerHTML = ''; showEmpty(); loadSessions(); });
 }
 
 document.getElementById('newChatBtn').addEventListener('click', function() {
@@ -464,13 +509,19 @@ function addUserBubble(text, chips) {
     wrap.className = 'msg-attaches';
     chips.forEach(function(c) {
       var chip = document.createElement('div');
-      chip.className = 'msg-att';
-      if (c.type === 'image') {
-        var img = document.createElement('img');
-        img.src = c.preview;
-        chip.appendChild(img);
+      if (c.type === 'image-placeholder') {
+        // Image from history — base64 not stored, show a placeholder chip
+        chip.className = 'img-placeholder';
+        chip.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> Image';
+      } else {
+        chip.className = 'msg-att';
+        if (c.type === 'image') {
+          var img = document.createElement('img');
+          img.src = c.preview;
+          chip.appendChild(img);
+        }
+        chip.appendChild(document.createTextNode(c.name));
       }
-      chip.appendChild(document.createTextNode(c.name));
       wrap.appendChild(chip);
     });
     bub.appendChild(wrap);
