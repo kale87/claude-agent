@@ -2,7 +2,7 @@
 
 A local Claude API server running in Docker. Always available at `http://localhost:3000`.
 
-**Features:** streaming responses · persistent conversation history · rate limiting · context window management
+**Features:** streaming responses · persistent conversation history · file & image upload · rate limiting · context window management
 
 ## Setup
 
@@ -62,6 +62,7 @@ curl -X POST http://localhost:3000/chat \
 | `message` | string | yes | The user message |
 | `sessionId` | string | no | Conversation ID for multi-turn memory (default: `"default"`) |
 | `system` | string | no | System prompt to set Claude's behaviour |
+| `images` | array | no | Images for Claude to analyse (see [Image upload](#image-upload)) |
 
 Example with all fields:
 ```json
@@ -98,6 +99,26 @@ data: {"done":true,"sessionId":"my-session"}
 
 The web UI at `http://localhost:3000` uses this endpoint by default.
 
+### `GET /sessions`
+Returns a list of recent sessions ordered by most recently active.
+
+```bash
+curl http://localhost:3000/sessions
+```
+
+```json
+[
+  { "id": "ui-1713200000000", "lastAccessed": 1713200000000, "preview": "What is Docker?", "count": 4 }
+]
+```
+
+### `GET /sessions/:id/messages`
+Returns the full message history for a session.
+
+```bash
+curl http://localhost:3000/sessions/ui-1713200000000/messages
+```
+
 ### `POST /clear`
 Clears the conversation history for a session.
 
@@ -107,6 +128,24 @@ curl -X POST http://localhost:3000/clear \
   -d '{"sessionId": "my-project"}'
 # {"cleared": true, "sessionId": "my-project"}
 ```
+
+## Image upload
+
+Both `/chat` and `/chat/stream` accept an optional `images` array for multi-modal requests. Each entry must be a base64-encoded image.
+
+```bash
+# Convert a local image to base64 and send it
+IMG=$(base64 -i screenshot.png)
+curl -s -N -X POST http://localhost:3000/chat/stream \
+  -H "Content-Type: application/json" \
+  -d "{\"message\": \"What is in this screenshot?\", \"sessionId\": \"my-session\", \"images\": [{\"data\": \"$IMG\", \"mediaType\": \"image/png\"}]}"
+```
+
+**Supported formats:** `image/png` · `image/jpeg` · `image/gif` · `image/webp`
+
+**Size limit:** requests are accepted up to **20 MB** (base64 adds ~33% overhead, so source images up to ~15 MB work fine).
+
+The web UI upload button handles base64 encoding automatically — just click the image icon and pick a file.
 
 ## Rate Limiting
 
@@ -130,6 +169,7 @@ RateLimit-Policy: 30;w=60
 | Status | Meaning |
 |---|---|
 | `400` | `message` field missing from request body |
+| `413` | Request body exceeds 20 MB limit |
 | `429` | Rate limit exceeded (30 req/min) or Claude API rate limit hit |
 | `500` | Unexpected server error |
 | `502` | Claude API returned an unexpected response |
