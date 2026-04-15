@@ -1,6 +1,6 @@
 {
   "name": "claude-agent",
-  "version": "1.0.0",
+"version": "2.0.0"
   "description": "Local Claude API agent running in Docker",
   "main": "server.js",
   "scripts": {
