@@ -1,4 +1,8 @@
-node_modules/
+__pycache__/
+*.py[cod]
+*.pyo
 .env
 data/
 *.db
+.venv/
+venv/
