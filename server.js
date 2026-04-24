@@ -22,7 +22,6 @@ const MAX_CTX_CHARS  = 80_000;
 
 const GIT_WORKDIR = process.env.GIT_WORKDIR || '/workspace';
 
-// Resolve full git path at startup so execFile never fails with ENOENT
 const GIT_BIN = (() => {
   const candidates = ['/usr/bin/git', '/usr/local/bin/git', '/bin/git'];
   for (const p of candidates) {
@@ -32,9 +31,6 @@ const GIT_BIN = (() => {
 })();
 console.log(`Git binary: ${GIT_BIN}`);
 
-// ---------------------------------------------------------------------------
-// SQLite setup
-// ---------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -69,9 +65,6 @@ setInterval(() => {
   if (deleted.changes > 0) console.log(`Purged ${deleted.changes} expired session(s)`);
 }, 10 * 60 * 1000);
 
-// ---------------------------------------------------------------------------
-// Context window management
-// ---------------------------------------------------------------------------
 function contentLen(m) {
   if (typeof m.content === 'string') return m.content.length;
   if (Array.isArray(m.content)) return m.content.reduce((s, b) => s + (b.text?.length || 0), 0);
@@ -93,18 +86,12 @@ function serializeForDb(messages) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Rate limiter
-// ---------------------------------------------------------------------------
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000, max: 30,
   standardHeaders: true, legacyHeaders: false,
   message: { error: 'Too many requests, please slow down.' },
 });
 
-// ---------------------------------------------------------------------------
-// Chat routes
-// ---------------------------------------------------------------------------
 app.get('/health', (req, res) => {
   res.json({ status: 'Claude Agent is running \uD83D\uDE80', model: CLAUDE_MODEL });
 });
@@ -228,12 +215,12 @@ app.get('/sessions/:id/export', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Git routes
+// Git routes — use full binary path, inherit process.env without overriding PATH
 // ---------------------------------------------------------------------------
 async function git(...args) {
   const { stdout, stderr } = await execFileAsync(GIT_BIN, args, {
     cwd: GIT_WORKDIR,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', PATH: '/usr/bin:/usr/local/bin:/bin' },
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     maxBuffer: 4 * 1024 * 1024,
   });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
@@ -330,7 +317,6 @@ app.post('/git/pull', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.stderr || err.message }); }
 });
 
-// ---------------------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Claude Agent running on http://localhost:${PORT}`);
