@@ -1,214 +1,25 @@
-# Claude Agent 🚀
+# Claude Agent v3
 
-A local Claude API server running in Docker. Always available at `http://localhost:3000`.
-
-**Features:** streaming responses · persistent conversation history · file & image upload · rate limiting · context window management
+A multi-agent Claude system with a pixel office UI and full GitHub integration.
 
 ## Setup
 
-**1. Clone the repo**
-```bash
-git clone https://github.com/kale87/claude-agent.git
-cd claude-agent
-```
-
-**2. Add your API key**
 ```bash
 cp .env.example .env
-```
-Then open `.env` and replace `your_api_key_here` with your key from [console.anthropic.com](https://console.anthropic.com).
-
-**3. Start the agent**
-```bash
-docker compose up -d
+# Fill in ANTHROPIC_API_KEY and GITHUB_TOKEN
+npm install
+npm start
 ```
 
-That's it! The agent is now running at `http://localhost:3000`.
+Open http://localhost:3000
 
-## Configuration
+## Agents
 
-All configuration is via environment variables in `.env`:
+- **Manager** — receives your request, plans and delegates
+- **Coder** — writes code, reviews, handles GitHub operations  
+- **Researcher** — gathers context, summarizes, searches
+- **Writer** — content, docs, commit messages
 
-| Variable | Default | Description |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | *(required)* | Your Anthropic API key |
-| `PORT` | `3000` | Port the server listens on |
-| `CLAUDE_MODEL` | `claude-sonnet-4-20250514` | Claude model to use |
-| `MAX_TOKENS` | `4096` | Maximum tokens per response |
+## GitHub Integration
 
-## Endpoints
-
-### `GET /health`
-Returns the server status.
-
-```bash
-curl http://localhost:3000/health
-# {"status":"Claude Agent is running 🚀"}
-```
-
-### `POST /chat`
-Send a message to Claude. Conversation history is persisted to SQLite per `sessionId`, survives container restarts, and expires after 1 hour of inactivity.
-
-```bash
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What is Docker?"}'
-```
-
-**Request body:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `message` | string | yes | The user message |
-| `sessionId` | string | no | Conversation ID for multi-turn memory (default: `"default"`) |
-| `system` | string | no | System prompt to set Claude's behaviour |
-| `images` | array | no | Images for Claude to analyse (see [Image upload](#image-upload)) |
-
-Example with all fields:
-```json
-{
-  "message": "Review my code",
-  "sessionId": "my-project",
-  "system": "You are a senior software engineer who gives concise code reviews."
-}
-```
-
-**Response:**
-```json
-{
-  "reply": "Here's my review...",
-  "sessionId": "my-project"
-}
-```
-
-### `POST /chat/stream`
-Same as `/chat` but streams the response as [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) so you receive text as it is generated.
-
-```bash
-curl -s -N -X POST http://localhost:3000/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What is Docker?", "sessionId": "my-session"}'
-```
-
-Each event is a JSON object on a `data:` line:
-```
-data: {"chunk":"Docker is..."}
-data: {"chunk":" a platform"}
-data: {"done":true,"sessionId":"my-session"}
-```
-
-The web UI at `http://localhost:3000` uses this endpoint by default.
-
-### `GET /sessions`
-Returns a list of recent sessions ordered by most recently active.
-
-```bash
-curl http://localhost:3000/sessions
-```
-
-```json
-[
-  { "id": "ui-1713200000000", "lastAccessed": 1713200000000, "preview": "What is Docker?", "count": 4 }
-]
-```
-
-### `GET /sessions/:id/messages`
-Returns the full message history for a session.
-
-```bash
-curl http://localhost:3000/sessions/ui-1713200000000/messages
-```
-
-### `POST /clear`
-Clears the conversation history for a session.
-
-```bash
-curl -X POST http://localhost:3000/clear \
-  -H "Content-Type: application/json" \
-  -d '{"sessionId": "my-project"}'
-# {"cleared": true, "sessionId": "my-project"}
-```
-
-## Image upload
-
-Both `/chat` and `/chat/stream` accept an optional `images` array for multi-modal requests. Each entry must be a base64-encoded image.
-
-```bash
-# Convert a local image to base64 and send it
-IMG=$(base64 -i screenshot.png)
-curl -s -N -X POST http://localhost:3000/chat/stream \
-  -H "Content-Type: application/json" \
-  -d "{\"message\": \"What is in this screenshot?\", \"sessionId\": \"my-session\", \"images\": [{\"data\": \"$IMG\", \"mediaType\": \"image/png\"}]}"
-```
-
-**Supported formats:** `image/png` · `image/jpeg` · `image/gif` · `image/webp`
-
-**Size limit:** requests are accepted up to **20 MB** (base64 adds ~33% overhead, so source images up to ~15 MB work fine).
-
-The web UI upload button handles base64 encoding automatically — just click the image icon and pick a file.
-
-## Rate Limiting
-
-Both `/chat` and `/chat/stream` are rate limited to **30 requests per minute per IP**. Exceeding the limit returns a `429` response:
-
-```json
-{"error": "Too many requests, please slow down."}
-```
-
-Each response includes standard rate limit headers:
-
-```
-RateLimit-Limit: 30
-RateLimit-Remaining: 28
-RateLimit-Reset: 45
-RateLimit-Policy: 30;w=60
-```
-
-## Error Handling
-
-| Status | Meaning |
-|---|---|
-| `400` | `message` field missing from request body |
-| `413` | Request body exceeds 20 MB limit |
-| `429` | Rate limit exceeded (30 req/min) or Claude API rate limit hit |
-| `500` | Unexpected server error |
-| `502` | Claude API returned an unexpected response |
-
-## Commands
-
-```bash
-# Start in background
-docker compose up -d
-
-# Rebuild after code changes
-docker compose up -d --build
-
-# Stop
-docker compose down
-
-# View logs
-docker compose logs -f
-
-# Restart
-docker compose restart
-```
-
-## How it works
-
-```
-You / Your apps
-      │
-      ▼
-http://localhost:3000   ← Docker container (always on)
-      │                    └─ SQLite DB (./data/sessions.db)
-      ▼
- Anthropic Claude API
-```
-
-## Data & persistence
-
-Conversation history is stored in `./data/sessions.db` (SQLite), mounted into the container via a Docker volume. This means:
-- History survives `docker compose restart`
-- History is lost only on `docker compose down -v` or manual deletion of `./data/`
-- Sessions idle for more than 1 hour are purged automatically
-- Conversations that grow beyond ~80 000 characters have their oldest turns trimmed to stay within Claude's context window
+Set `GITHUB_TOKEN` in `.env`. Then use the GitHub panel to browse repos, commit, push, create branches and PRs, and review pull requests.
