@@ -2,10 +2,11 @@ import os
 import json
 import sqlite3
 import asyncio
+import re
 import httpx
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -58,6 +59,8 @@ Be concise in your planning. Delegate clearly.""",
     },
 }
 
+AGENT_KEYS = list(AGENTS.keys())
+
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
@@ -79,8 +82,43 @@ with get_db() as conn:
             last_accessed INTEGER NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS skills (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            agent       TEXT NOT NULL DEFAULT 'shared',
+            content     TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        )
+    """)
     conn.commit()
 
+# ---------------------------------------------------------------------------
+# Skills helpers
+# ---------------------------------------------------------------------------
+def get_skills_for_agent(agent_key: str) -> list:
+    """Return shared skills + agent-specific skills."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM skills WHERE agent = 'shared' OR agent = ? ORDER BY created_at ASC",
+            (agent_key,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+def build_system_prompt(agent_key: str) -> str:
+    """Inject skills into agent system prompt."""
+    base = AGENTS[agent_key]["system"]
+    skills = get_skills_for_agent(agent_key)
+    if not skills:
+        return base
+    skills_text = "\n\n".join(
+        f"### Skill: {s['name']}\n{s['content']}" for s in skills
+    )
+    return f"{base}\n\n---\n## Your Skills\n{skills_text}"
+
+# ---------------------------------------------------------------------------
+# Session helpers
+# ---------------------------------------------------------------------------
 def get_session(session_id: str) -> dict:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
@@ -98,7 +136,7 @@ def save_session(session_id: str, title: str, messages: list):
         conn.commit()
 
 # ---------------------------------------------------------------------------
-# Ollama streaming helper
+# Ollama streaming
 # ---------------------------------------------------------------------------
 async def ollama_stream(system: str, messages: list) -> AsyncGenerator[str, None]:
     payload = {
@@ -118,12 +156,6 @@ async def ollama_stream(system: str, messages: list) -> AsyncGenerator[str, None
                     except json.JSONDecodeError:
                         pass
 
-async def ollama_complete(system: str, messages: list) -> str:
-    result = ""
-    async for chunk in ollama_stream(system, messages):
-        result += chunk
-    return result
-
 # ---------------------------------------------------------------------------
 # GitHub helper
 # ---------------------------------------------------------------------------
@@ -134,9 +166,8 @@ async def github_request(method: str, endpoint: str, body: dict = None):
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    url = f"https://api.github.com{endpoint}"
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.request(method, url, headers=headers, json=body)
+        resp = await client.request(method, f"https://api.github.com{endpoint}", headers=headers, json=body)
         if resp.status_code == 204:
             return {}
         data = resp.json()
@@ -151,7 +182,7 @@ app = FastAPI(title="Kal-AI")
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "model": OLLAMA_MODEL, "ollama": OLLAMA_HOST, "agents": list(AGENTS.keys())}
+    return {"ok": True, "model": OLLAMA_MODEL, "ollama": OLLAMA_HOST, "agents": AGENT_KEYS}
 
 @app.get("/ollama/status")
 async def ollama_status():
@@ -175,17 +206,12 @@ async def list_sessions():
             SELECT id, title, messages, last_accessed FROM sessions
             WHERE id LIKE 'ui-%' ORDER BY last_accessed DESC LIMIT 50
         """).fetchall()
-    result = []
-    for r in rows:
-        msgs = json.loads(r["messages"])
-        if msgs:
-            result.append({"id": r["id"], "title": r["title"], "count": len(msgs), "lastAccessed": r["last_accessed"]})
-    return result
+    return [{"id": r["id"], "title": r["title"], "count": len(json.loads(r["messages"])), "lastAccessed": r["last_accessed"]}
+            for r in rows if json.loads(r["messages"])]
 
 @app.get("/sessions/{session_id}/messages")
 async def get_messages(session_id: str):
-    sess = get_session(session_id)
-    return sess["messages"]
+    return get_session(session_id)["messages"]
 
 @app.post("/sessions/{session_id}/clear")
 async def clear_session(session_id: str):
@@ -193,73 +219,126 @@ async def clear_session(session_id: str):
     return {"ok": True}
 
 # ---------------------------------------------------------------------------
-# Chat — Manager orchestrates specialists
+# Skills API
+# ---------------------------------------------------------------------------
+@app.get("/skills")
+async def list_skills(agent: Optional[str] = None):
+    with get_db() as conn:
+        if agent:
+            rows = conn.execute(
+                "SELECT * FROM skills WHERE agent = ? OR agent = 'shared' ORDER BY created_at ASC",
+                (agent,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM skills ORDER BY created_at ASC").fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/skills")
+async def create_skill(request: Request):
+    body = await request.json()
+    name    = body.get("name", "").strip()
+    agent   = body.get("agent", "shared").strip()
+    content = body.get("content", "").strip()
+    if not name or not content:
+        return JSONResponse({"error": "name and content are required"}, status_code=400)
+    if agent not in AGENT_KEYS and agent != "shared":
+        return JSONResponse({"error": f"agent must be one of: shared, {', '.join(AGENT_KEYS)}"}, status_code=400)
+    now = int(datetime.now().timestamp() * 1000)
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO skills (name, agent, content, created_at) VALUES (?, ?, ?, ?)",
+            (name, agent, content, now)
+        )
+        conn.commit()
+        skill_id = cur.lastrowid
+    return {"id": skill_id, "name": name, "agent": agent, "content": content, "created_at": now}
+
+@app.put("/skills/{skill_id}")
+async def update_skill(skill_id: int, request: Request):
+    body = await request.json()
+    name    = body.get("name", "").strip()
+    content = body.get("content", "").strip()
+    agent   = body.get("agent", "shared").strip()
+    if not name or not content:
+        return JSONResponse({"error": "name and content are required"}, status_code=400)
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE skills SET name=?, content=?, agent=? WHERE id=?",
+            (name, content, agent, skill_id)
+        )
+        conn.commit()
+    return {"ok": True}
+
+@app.delete("/skills/{skill_id}")
+async def delete_skill(skill_id: int):
+    with get_db() as conn:
+        conn.execute("DELETE FROM skills WHERE id = ?", (skill_id,))
+        conn.commit()
+    return {"ok": True}
+
+# ---------------------------------------------------------------------------
+# Chat
 # ---------------------------------------------------------------------------
 @app.post("/chat")
 async def chat(request: Request):
     body = await request.json()
-    message = body.get("message", "").strip()
+    message    = body.get("message", "").strip()
     session_id = body.get("sessionId", "default")
-
     if not message:
         return JSONResponse({"error": "message required"}, status_code=400)
 
     async def generate():
-        import re
-
         def sse(data: dict) -> str:
             return f"data: {json.dumps(data)}\n\n"
 
-        sess = get_session(session_id)
+        sess    = get_session(session_id)
         history = sess["messages"]
         history.append({"role": "user", "content": message, "agent": "user"})
-
         yield sse({"type": "status", "agent": "manager", "status": "thinking"})
 
-        # Build chat history for manager
         chat_msgs = [{"role": m["role"], "content": m["content"]} for m in history if m["role"] in ("user", "assistant")]
 
-        # Step 1: Manager response
+        # Step 1: Manager (with injected skills)
+        manager_system   = build_system_prompt("manager")
         manager_response = ""
-        async for chunk in ollama_stream(AGENTS["manager"]["system"], chat_msgs):
+        async for chunk in ollama_stream(manager_system, chat_msgs):
             manager_response += chunk
             yield sse({"type": "chunk", "agent": "manager", "chunk": chunk})
 
         # Step 2: Parse delegations
         delegations = re.findall(r'<delegate agent="(\w+)">(.*?)</delegate>', manager_response, re.DOTALL)
 
-        # Step 3: Run specialists
+        # Step 3: Specialists (each with their own injected skills)
         specialist_results = {}
         for agent_key, task in delegations:
             if agent_key not in AGENTS:
                 continue
             yield sse({"type": "status", "agent": agent_key, "status": "working"})
+            system = build_system_prompt(agent_key)
             result = ""
-            async for chunk in ollama_stream(AGENTS[agent_key]["system"], [{"role": "user", "content": task.strip()}]):
+            async for chunk in ollama_stream(system, [{"role": "user", "content": task.strip()}]):
                 result += chunk
                 yield sse({"type": "chunk", "agent": agent_key, "chunk": chunk})
             specialist_results[agent_key] = result
             yield sse({"type": "status", "agent": agent_key, "status": "done"})
 
-        # Step 4: Synthesize if needed
+        # Step 4: Synthesize
         final_response = manager_response
         if specialist_results:
             yield sse({"type": "status", "agent": "manager", "status": "synthesizing"})
-            specialist_summary = "\n\n".join(
-                f"[{AGENTS[k]['name']}]:\n{v}" for k, v in specialist_results.items()
-            )
+            specialist_summary = "\n\n".join(f"[{AGENTS[k]['name']}]:\n{v}" for k, v in specialist_results.items())
             synthesis_prompt = f'The user asked: "{message}"\n\nSpecialist results:\n{specialist_summary}\n\nGive the user a single clear well-organized final answer.'
             synthesis_msgs = chat_msgs + [
                 {"role": "assistant", "content": manager_response},
                 {"role": "user",      "content": synthesis_prompt},
             ]
             synthesis = ""
-            async for chunk in ollama_stream(AGENTS["manager"]["system"], synthesis_msgs):
+            async for chunk in ollama_stream(manager_system, synthesis_msgs):
                 synthesis += chunk
                 yield sse({"type": "synthesis_chunk", "agent": "manager", "chunk": chunk})
             final_response = synthesis
 
-        # Save session
+        # Save
         history.append({"role": "assistant", "content": final_response, "agent": "manager"})
         title = message[:60] if sess["title"] == "New conversation" else sess["title"]
         save_session(session_id, title, history)
@@ -268,79 +347,68 @@ async def chat(request: Request):
         for k in AGENTS:
             yield sse({"type": "status", "agent": k, "status": "idle"})
 
-    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
 
 # ---------------------------------------------------------------------------
-# GitHub routes
+# GitHub
 # ---------------------------------------------------------------------------
 @app.get("/github/repos")
 async def gh_repos():
-    try:
-        return await github_request("GET", "/user/repos?sort=updated&per_page=30")
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    try: return await github_request("GET", "/user/repos?sort=updated&per_page=30")
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/github/repos/{owner}/{repo}/contents")
 async def gh_contents(owner: str, repo: str, path: str = ""):
-    try:
-        return await github_request("GET", f"/repos/{owner}/{repo}/contents/{path}")
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    try: return await github_request("GET", f"/repos/{owner}/{repo}/contents/{path}")
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/github/repos/{owner}/{repo}/branches")
 async def gh_branches(owner: str, repo: str):
-    try:
-        return await github_request("GET", f"/repos/{owner}/{repo}/branches")
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    try: return await github_request("GET", f"/repos/{owner}/{repo}/branches")
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/github/repos/{owner}/{repo}/pulls")
 async def gh_pulls(owner: str, repo: str):
-    try:
-        return await github_request("GET", f"/repos/{owner}/{repo}/pulls?state=open")
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    try: return await github_request("GET", f"/repos/{owner}/{repo}/pulls?state=open")
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/github/repos/{owner}/{repo}/commits")
 async def gh_commit(owner: str, repo: str, request: Request):
     try:
-        body = await request.json()
         import base64
+        body = await request.json()
         content_b64 = base64.b64encode(body["content"].encode()).decode()
         payload = {"message": body["message"], "content": content_b64, "branch": body.get("branch", "main")}
-        if body.get("sha"):
-            payload["sha"] = body["sha"]
+        if body.get("sha"): payload["sha"] = body["sha"]
         return await github_request("PUT", f"/repos/{owner}/{repo}/contents/{body['path']}", payload)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/github/repos/{owner}/{repo}/pulls")
 async def gh_create_pr(owner: str, repo: str, request: Request):
-    try:
-        return await github_request("POST", f"/repos/{owner}/{repo}/pulls", await request.json())
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    try: return await github_request("POST", f"/repos/{owner}/{repo}/pulls", await request.json())
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/github/repos/{owner}/{repo}/pulls/{number}/reviews")
 async def gh_review(owner: str, repo: str, number: int, request: Request):
-    try:
-        return await github_request("POST", f"/repos/{owner}/{repo}/pulls/{number}/reviews", await request.json())
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    try: return await github_request("POST", f"/repos/{owner}/{repo}/pulls/{number}/reviews", await request.json())
+    except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
 
 # ---------------------------------------------------------------------------
-# Static files (must be last)
+# Static (must be last)
 # ---------------------------------------------------------------------------
 app.mount("/", StaticFiles(directory="public", html=True), name="static")
 
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
     print(f"""
 🚀 Kal-AI running at http://localhost:{PORT}
    Model:  {OLLAMA_MODEL}
    Ollama: {OLLAMA_HOST}
-   GitHub: {'connected' if GITHUB_TOKEN else 'no token (add GITHUB_TOKEN to .env)'}
+   GitHub: {'connected' if GITHUB_TOKEN else 'no token'}
 
    Make sure Ollama is running: ollama serve
    And the model is pulled:     ollama pull {OLLAMA_MODEL}
