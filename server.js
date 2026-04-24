@@ -1,5 +1,5 @@
 const express = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
+const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -11,11 +11,57 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const OLLAMA_HOST  = process.env.OLLAMA_HOST  || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
-const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514';
-const MAX_TOKENS = parseInt(process.env.MAX_TOKENS, 10) || 4096;
-const PORT = process.env.PORT || 3000;
+const PORT         = parseInt(process.env.PORT, 10) || 3000;
+
+// ---------------------------------------------------------------------------
+// Ollama streaming helper
+// ---------------------------------------------------------------------------
+function ollamaStream(system, messages, onChunk) {
+  return new Promise((resolve, reject) => {
+    const ollamaMessages = [
+      { role: 'system', content: system },
+      ...messages,
+    ];
+    const body = JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: ollamaMessages,
+      stream: true,
+    });
+    const url = new URL('/api/chat', OLLAMA_HOST);
+    const isHttps = url.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const req = lib.request(
+      {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        let full = '';
+        res.on('data', (chunk) => {
+          const lines = chunk.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
+              const text = parsed.message?.content || '';
+              if (text) { full += text; onChunk(text); }
+            } catch (_) {}
+          }
+        });
+        res.on('end', () => resolve(full));
+        res.on('error', reject);
+      }
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Database
@@ -25,9 +71,9 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, 'sessions.db'));
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL DEFAULT 'New conversation',
-    messages TEXT NOT NULL DEFAULT '[]',
+    id           TEXT PRIMARY KEY,
+    title        TEXT NOT NULL DEFAULT 'New conversation',
+    messages     TEXT NOT NULL DEFAULT '[]',
     last_accessed INTEGER NOT NULL
   )
 `);
@@ -35,7 +81,6 @@ const stmtGet    = db.prepare('SELECT * FROM sessions WHERE id = ?');
 const stmtUpsert = db.prepare(`INSERT INTO sessions (id, title, messages, last_accessed) VALUES (?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages=excluded.messages, last_accessed=excluded.last_accessed`);
 const stmtDelete = db.prepare('DELETE FROM sessions WHERE last_accessed < ?');
-
 setInterval(() => stmtDelete.run(Date.now() - 24 * 60 * 60 * 1000), 30 * 60 * 1000);
 
 function getSession(id) {
@@ -54,58 +99,40 @@ const AGENTS = {
     name: 'Manager',
     emoji: '🎯',
     color: '#6366f1',
-    system: `You are the Manager agent in a multi-agent system. Your job is to:
-1. Understand the user's request
-2. Break it into subtasks
-3. Decide which specialist agents should handle each part
-4. Synthesize results into a final response
+    system: `You are the Manager agent in a multi-agent AI system. Your role is to:
+1. Understand the user's request carefully
+2. Decide if you need specialist agents or can answer directly
+3. If specialists are needed, delegate using this exact format:
+<delegate agent="coder">specific task</delegate>
+<delegate agent="researcher">specific task</delegate>
+<delegate agent="writer">specific task</delegate>
 
-Available agents:
-- coder: code writing, review, debugging, GitHub operations
-- researcher: research, summarizing, finding information
-- writer: writing content, documentation, commit messages
+Available specialists:
+- coder: code writing, debugging, code review, technical implementation
+- researcher: research, summarizing, finding information, analysis
+- writer: writing content, documentation, editing, commit messages
 
-When you need a specialist, output a JSON block like:
-<delegate agent="coder">specific task description</delegate>
-
-You can delegate to multiple agents. After receiving their responses, synthesize everything into a clear final answer for the user.`,
+For simple questions, answer directly without delegating.
+For complex tasks, delegate clearly and the system will synthesize the results.
+Keep your planning brief — just delegate or answer.`,
   },
   coder: {
     name: 'Coder',
     emoji: '💻',
     color: '#10b981',
-    system: `You are the Coder agent. You specialize in:
-- Writing clean, well-documented code
-- Code review and improvement suggestions
-- Debugging and fixing issues
-- Explaining technical concepts
-- GitHub operations (files, commits, PRs)
-
-Be precise, technical, and always explain your reasoning. Use code blocks for all code.`,
+    system: `You are the Coder agent. You specialize in writing clean, well-documented code, reviewing and improving existing code, debugging issues, and explaining technical concepts. Always use code blocks. Be precise and thorough.`,
   },
   researcher: {
     name: 'Researcher',
     emoji: '🔍',
     color: '#f59e0b',
-    system: `You are the Researcher agent. You specialize in:
-- Gathering and synthesizing information
-- Summarizing complex topics clearly
-- Finding relevant context and background
-- Fact-checking and validation
-
-Be thorough, cite your reasoning, and present findings in a structured way.`,
+    system: `You are the Researcher agent. You specialize in gathering and synthesizing information, summarizing topics clearly, providing relevant context and background, and structured analysis. Be thorough and well-organized.`,
   },
   writer: {
     name: 'Writer',
     emoji: '✍️',
     color: '#ec4899',
-    system: `You are the Writer agent. You specialize in:
-- Writing clear, engaging content
-- Technical documentation
-- Commit messages and PR descriptions
-- Editing and improving existing text
-
-Match the tone and style appropriate for the context. Be concise but complete.`,
+    system: `You are the Writer agent. You specialize in writing clear engaging content, technical documentation, commit messages and PR descriptions, and editing existing text. Match the appropriate tone and style. Be concise but complete.`,
   },
 };
 
@@ -150,9 +177,32 @@ function githubRequest(method, endpoint, body = null) {
 const limiter = rateLimit({ windowMs: 60000, max: 60, standardHeaders: true, legacyHeaders: false });
 
 // ---------------------------------------------------------------------------
-// Health
+// Health check
 // ---------------------------------------------------------------------------
-app.get('/health', (req, res) => res.json({ ok: true, model: MODEL, agents: Object.keys(AGENTS) }));
+app.get('/health', (req, res) => {
+  res.json({ ok: true, model: OLLAMA_MODEL, ollama: OLLAMA_HOST, agents: Object.keys(AGENTS) });
+});
+
+// Check if Ollama is running
+app.get('/ollama/status', async (req, res) => {
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const url = new URL('/api/tags', OLLAMA_HOST);
+      const req = http.get({ hostname: url.hostname, port: url.port || 80, path: url.pathname }, (r) => {
+        let d = '';
+        r.on('data', c => d += c);
+        r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+      });
+      req.on('error', reject);
+      req.setTimeout(3000, () => { req.destroy(); reject(new Error('timeout')); });
+    });
+    const models = (result.models || []).map(m => m.name);
+    const hasModel = models.some(m => m.startsWith(OLLAMA_MODEL.split(':')[0]));
+    res.json({ running: true, models, hasModel, currentModel: OLLAMA_MODEL });
+  } catch (e) {
+    res.json({ running: false, error: e.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Sessions
@@ -160,8 +210,7 @@ app.get('/health', (req, res) => res.json({ ok: true, model: MODEL, agents: Obje
 app.get('/sessions', (req, res) => {
   const rows = db.prepare(`SELECT id, title, messages, last_accessed FROM sessions WHERE id LIKE 'ui-%' ORDER BY last_accessed DESC LIMIT 50`).all();
   res.json(rows.map(r => ({
-    id: r.id,
-    title: r.title,
+    id: r.id, title: r.title,
     count: JSON.parse(r.messages).length,
     lastAccessed: r.last_accessed,
   })).filter(r => r.count > 0));
@@ -173,13 +222,12 @@ app.get('/sessions/:id/messages', (req, res) => {
 });
 
 app.post('/sessions/:id/clear', (req, res) => {
-  const sess = getSession(req.params.id);
   saveSession(req.params.id, 'New conversation', []);
   res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
-// Main chat route — Manager orchestrates specialists
+// Main chat — Manager orchestrates specialists
 // ---------------------------------------------------------------------------
 app.post('/chat', limiter, async (req, res) => {
   const { message, sessionId = 'default' } = req.body;
@@ -188,38 +236,27 @@ app.post('/chat', limiter, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
   const sess = getSession(sessionId);
   const history = sess.messages;
-
-  // Add user message
   history.push({ role: 'user', content: message, agent: 'user', ts: Date.now() });
   send({ type: 'status', agent: 'manager', status: 'thinking' });
 
   try {
-    // Step 1: Manager plans
-    const managerHistory = history
+    // Step 1: Manager decides what to do
+    const chatHistory = history
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, content: m.content }));
 
     let managerResponse = '';
-    const managerStream = claude.messages.stream({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: AGENTS.manager.system,
-      messages: managerHistory,
-    });
+    await ollamaStream(
+      AGENTS.manager.system,
+      chatHistory,
+      (chunk) => { managerResponse += chunk; send({ type: 'chunk', agent: 'manager', chunk }); }
+    );
 
-    for await (const event of managerStream) {
-      if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-        managerResponse += event.delta.text;
-        send({ type: 'chunk', agent: 'manager', chunk: event.delta.text });
-      }
-    }
-
-    // Step 2: Parse delegate tags and run specialists
+    // Step 2: Parse delegations
     const delegateRegex = /<delegate agent="(\w+)">(.*?)<\/delegate>/gs;
     const delegations = [];
     let match;
@@ -227,54 +264,46 @@ app.post('/chat', limiter, async (req, res) => {
       delegations.push({ agent: match[1], task: match[2].trim() });
     }
 
+    // Step 3: Run specialists
     const specialistResults = {};
     for (const { agent, task } of delegations) {
       if (!AGENTS[agent]) continue;
       send({ type: 'status', agent, status: 'working' });
-
       let result = '';
-      const stream = claude.messages.stream({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: AGENTS[agent].system,
-        messages: [{ role: 'user', content: task }],
-      });
-
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-          result += event.delta.text;
-          send({ type: 'chunk', agent, chunk: event.delta.text });
-        }
-      }
-
+      await ollamaStream(
+        AGENTS[agent].system,
+        [{ role: 'user', content: task }],
+        (chunk) => { result += chunk; send({ type: 'chunk', agent, chunk }); }
+      );
       specialistResults[agent] = result;
       send({ type: 'status', agent, status: 'done' });
     }
 
-    // Step 3: If there were delegations, Manager synthesizes
+    // Step 4: Synthesize if there were delegations
     let finalResponse = managerResponse;
     if (delegations.length > 0) {
       send({ type: 'status', agent: 'manager', status: 'synthesizing' });
-      const synthesisPrompt = `Based on these specialist results, give the user a clear final answer:\n\n${Object.entries(specialistResults).map(([a, r]) => `[${a}]: ${r}`).join('\n\n')}`;
+      const synthesisPrompt = `The user asked: "${message}"
+
+Here are the specialist results:
+${Object.entries(specialistResults).map(([a, r]) => `[${AGENTS[a].name}]:\n${r}`).join('\n\n')}
+
+Now give the user a single clear, well-organized final answer that incorporates all the above.`;
 
       let synthesis = '';
-      const synthStream = claude.messages.stream({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: AGENTS.manager.system,
-        messages: [...managerHistory, { role: 'assistant', content: managerResponse }, { role: 'user', content: synthesisPrompt }],
-      });
-
-      for await (const event of synthStream) {
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-          synthesis += event.delta.text;
-          send({ type: 'synthesis_chunk', agent: 'manager', chunk: event.delta.text });
-        }
-      }
+      await ollamaStream(
+        AGENTS.manager.system,
+        [
+          ...chatHistory,
+          { role: 'assistant', content: managerResponse },
+          { role: 'user', content: synthesisPrompt },
+        ],
+        (chunk) => { synthesis += chunk; send({ type: 'synthesis_chunk', agent: 'manager', chunk }); }
+      );
       finalResponse = synthesis;
     }
 
-    // Save to session
+    // Save session
     history.push({ role: 'assistant', content: finalResponse, agent: 'manager', ts: Date.now() });
     const title = sess.title === 'New conversation' ? message.slice(0, 60) : sess.title;
     saveSession(sessionId, title, history);
@@ -284,7 +313,8 @@ app.post('/chat', limiter, async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    send({ type: 'error', message: err.message });
+    const isOllamaDown = err.code === 'ECONNREFUSED' || err.message === 'timeout';
+    send({ type: 'error', message: isOllamaDown ? 'Cannot connect to Ollama. Make sure it is running: ollama serve' : err.message });
   } finally {
     res.end();
   }
@@ -293,11 +323,6 @@ app.post('/chat', limiter, async (req, res) => {
 // ---------------------------------------------------------------------------
 // GitHub routes
 // ---------------------------------------------------------------------------
-app.get('/github/user', async (req, res) => {
-  try { res.json(await githubRequest('GET', '/user')); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 app.get('/github/repos', async (req, res) => {
   try { res.json(await githubRequest('GET', '/user/repos?sort=updated&per_page=30')); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -340,8 +365,10 @@ app.post('/github/repos/:owner/:repo/pulls/:number/reviews', async (req, res) =>
 
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
-  console.log(`\n🚀 Claude Agent v3 running at http://localhost:${PORT}`);
-  console.log(`   Model: ${MODEL}`);
-  console.log(`   Agents: ${Object.keys(AGENTS).join(', ')}`);
-  console.log(`   GitHub: ${GITHUB_TOKEN ? '✓ connected' : '✗ no token'}\n`);
+  console.log(`\n🚀 Claude Agent v3 (Ollama) running at http://localhost:${PORT}`);
+  console.log(`   Model:  ${OLLAMA_MODEL}`);
+  console.log(`   Ollama: ${OLLAMA_HOST}`);
+  console.log(`   GitHub: ${GITHUB_TOKEN ? '✓ connected' : '✗ no token (add GITHUB_TOKEN to .env)'}`);
+  console.log(`\n   Make sure Ollama is running: ollama serve`);
+  console.log(`   And the model is pulled:     ollama pull ${OLLAMA_MODEL}\n`);
 });
