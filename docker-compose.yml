@@ -8,6 +8,10 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+      # Mount the repo you want to commit/push from.
+      # Change the left side to any folder on your machine.
+      # Example: - /Users/you/myproject:/workspace
+      - ${GIT_WORKDIR:-./workspace}:/workspace
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']

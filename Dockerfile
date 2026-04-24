@@ -1,15 +1,13 @@
 FROM node:20-alpine
 
+# Install git so the git routes work
+RUN apk add --no-cache git
+
 WORKDIR /app
 
-# Install build tools required by better-sqlite3 (native module)
-# Removed after install to keep the image lean
 COPY package*.json ./
-RUN apk add --no-cache --virtual .build-deps python3 make g++ \
-  && npm install --omit=dev \
-  && apk del .build-deps
+RUN npm install --omit=dev
 
-# Copy both server and public folder
 COPY server.js .
 COPY public ./public
 
