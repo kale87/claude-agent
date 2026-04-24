@@ -1,7 +1,7 @@
 {
   "name": "claude-agent",
-  "version": "2.0.0",
-  "description": "Local Claude API agent running in Docker",
+  "version": "3.0.0",
+  "description": "Multi-agent Claude system with pixel office UI and GitHub integration",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
