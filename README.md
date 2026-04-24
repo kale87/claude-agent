@@ -1,11 +1,13 @@
-# Multi-Agent Local AI — Claude Agent v3
+# Kal-AI
 
-A multi-agent AI system powered by **Ollama** (fully local, no API costs) with a pixel art office UI and GitHub integration.
+A fully local multi-agent AI system powered by **Ollama** — no API costs, no cloud.
+Built with Python (FastAPI) and a pixel art office UI.
 
 ## Prerequisites
 
-1. Install Ollama: https://ollama.ai
-2. Pull a model:
+1. **Python 3.11+** — `python3 --version`
+2. **Ollama** — https://ollama.ai
+3. Pull a model:
 ```bash
 ollama pull llama3.1
 ```
@@ -13,12 +15,14 @@ ollama pull llama3.1
 ## Setup
 
 ```bash
-git clone https://github.com/kale87/claude-agent
-cd claude-agent
-npm install
+git clone https://github.com/kale87/kal-ai
+cd kal-ai
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 cp .env.example .env
 # Edit .env — add your GITHUB_TOKEN
-npm start
+python main.py
 ```
 
 Open http://localhost:3000
@@ -32,10 +36,6 @@ Open http://localhost:3000
 | 🔍 Researcher | Research, summarizing, context gathering |
 | ✍️ Writer | Content, documentation, commit messages |
 
-## GitHub Integration
-
-Set `GITHUB_TOKEN` in `.env` (needs `repo` scope). Then use the GitHub panel in the UI to browse repos, commit files, create branches and PRs.
-
 ## Switching models
 
-Edit `OLLAMA_MODEL` in `.env` and restart. Any model you've pulled with `ollama pull` works.
+Edit `OLLAMA_MODEL` in `.env` and restart. Any model pulled with `ollama pull` works.

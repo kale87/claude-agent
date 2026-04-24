@@ -2,17 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Start",
+      "label": "Start Kal-AI",
       "type": "shell",
-      "command": "npm start",
+      "command": "source .venv/bin/activate && python main.py",
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "shared" },
       "group": "build"
     },
     {
-      "label": "Dev (auto-restart)",
+      "label": "Install dependencies",
       "type": "shell",
-      "command": "npm run dev",
+      "command": "python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt",
       "options": { "cwd": "${workspaceFolder}" },
       "presentation": { "reveal": "always", "panel": "shared" }
     }
