@@ -2,41 +2,19 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Claude Agent: Start",
+      "label": "Start",
       "type": "shell",
-      "command": "docker compose up -d",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
+      "command": "npm start",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" },
       "group": "build"
     },
     {
-      "label": "Claude Agent: Stop",
+      "label": "Dev (auto-restart)",
       "type": "shell",
-      "command": "docker compose down",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      }
-    },
-    {
-      "label": "Claude Agent: Logs",
-      "type": "shell",
-      "command": "docker compose logs -f",
-      "options": {
-        "cwd": "${workspaceFolder}"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      }
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "shared" }
     }
   ]
 }
