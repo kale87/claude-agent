@@ -1,0 +1,4 @@
+# workspace/
+# This folder is the default git workspace mount.
+# Replace the docker-compose volume with your actual project path,
+# or set GIT_WORKDIR in .env to point to an existing repo on your machine.
