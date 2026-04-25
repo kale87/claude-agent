@@ -84,12 +84,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
 .mr:hover .macts{opacity:1}
 .abtn{display:flex;align-items:center;gap:4px;padding:3px 9px;background:var(--s1);border:1px solid var(--b1);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer;transition:all var(--t)}
 .abtn:hover{color:var(--tx);border-color:var(--b2)}
-/* tool call pills */
 .tool-call{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;margin:3px 0;border-radius:20px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);font-size:11.5px;font-family:'JetBrains Mono',monospace;color:var(--ac)}
-.tool-call svg{flex-shrink:0}
-.tool-result{margin:4px 0;padding:8px 12px;border-radius:var(--r3);background:rgba(0,0,0,.3);border:1px solid var(--b1);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto}
-.tool-result.ok{border-color:rgba(74,222,128,.2);color:rgba(74,222,128,.8)}
-.tool-result.err{border-color:rgba(248,113,113,.3);color:var(--err)}
 .bub p{margin-bottom:.6em}
 .bub p:last-child{margin-bottom:0}
 .bub h1,.bub h2,.bub h3{font-weight:700;margin:.9em 0 .35em;line-height:1.3}
@@ -219,11 +214,9 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
         <div class="e-title">Kal-AI</div>
         <div class="e-sub">Ask a question or give your team a task</div>
         <div class="e-chips">
-          <button class="ec" data-p="What is the difference between async and sync code?">Quick question</button>
-          <button class="ec" data-p="List all my GitHub repos">List my repos</button>
-          <button class="ec" data-p="Read the README.md in my kale87/kal-ai repo">Read a file</button>
-          <button class="ec" data-p="Review the code in repo kale87/kal-ai and suggest improvements">Review & improve</button>
-          <button class="ec" data-p="Fix the bug in src/App.js in repo kale87/expansesproject and commit it">Fix & commit</button>
+          <button class="ec" data-p="List all my GitHub repos">List repos</button>
+          <button class="ec" data-p="Show files in my kal-ai repo">Browse repo</button>
+          <button class="ec" data-p="Read README.md in my kal-ai repo">Read file</button>
           <button class="ec" data-p="Write documentation for: ">Write docs</button>
         </div>
       </div>
@@ -235,8 +228,8 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
         <textarea id="inp" rows="1" placeholder="Ask a question or give your agents a task…"></textarea>
         <div class="itbar">
           <div class="itools">
-            <button class="ib" id="fileBtn" title="Attach file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
-            <button class="ib del" id="clearBtn" title="Clear"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
+            <button class="ib" id="fileBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+            <button class="ib del" id="clearBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></button>
           </div>
           <button class="sbtn" id="sendBtn" disabled><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
         </div>
@@ -318,31 +311,62 @@ function swSess(id){if(id===sid)return;sid=id;document.querySelectorAll('.si').f
 document.getElementById('newBtn').addEventListener('click',()=>{sid='ui-'+Date.now();atts=[];renderAtts();msgsEl.innerHTML='';showEmpty();loadSess();inpEl.focus();});
 
 // MESSAGES
-function showEmpty(){if(document.getElementById('empty'))return;const d=document.createElement('div');d.id='empty';d.innerHTML='<div class="e-icon">✦</div><div class="e-title">Kal-AI</div><div class="e-sub">Ask a question or give your team a task</div><div class="e-chips"><button class="ec" data-p="List all my GitHub repos">List repos</button><button class="ec" data-p="Read README.md in kale87/kal-ai">Read file</button><button class="ec" data-p="Review the code in kale87/kal-ai and suggest improvements">Review code</button><button class="ec" data-p="Write documentation for: ">Write docs</button></div>';msgsEl.appendChild(d);bindChips(d);}
+function showEmpty(){if(document.getElementById('empty'))return;const d=document.createElement('div');d.id='empty';d.innerHTML='<div class="e-icon">✦</div><div class="e-title">Kal-AI</div><div class="e-sub">Ask a question or give your team a task</div><div class="e-chips"><button class="ec" data-p="List all my GitHub repos">List repos</button><button class="ec" data-p="Show files in my kal-ai repo">Browse repo</button><button class="ec" data-p="Read README.md in my kal-ai repo">Read file</button><button class="ec" data-p="Write documentation for: ">Write docs</button></div>';msgsEl.appendChild(d);bindChips(d);}
 function hideEmpty(){const e=document.getElementById('empty');if(e)e.remove();}
 function addU(txt){hideEmpty();const row=document.createElement('div');row.className='mr u';const b=document.createElement('div');b.className='bub';const sp=document.createElement('span');sp.style.whiteSpace='pre-wrap';sp.textContent=txt;b.appendChild(sp);const acts=document.createElement('div');acts.className='macts';const cb=mkBtn('Copy');cb.addEventListener('click',()=>navigator.clipboard.writeText(txt).then(()=>{cb.lastChild.textContent='Copied!';setTimeout(()=>cb.lastChild.textContent='Copy',1800);}));acts.appendChild(cb);row.appendChild(b);row.appendChild(acts);msgsEl.appendChild(row);scrollBot();}
 function addA(txt,ak='manager'){hideEmpty();const ag=AGENTS[ak]||AGENTS.manager;const row=document.createElement('div');row.className='mr a';const lbl=document.createElement('div');lbl.className='al';lbl.innerHTML=`<span class="al-dot" style="background:${ag.color}"></span>${ag.emoji} ${ag.name}`;const b=document.createElement('div');b.className='bub';b.innerHTML=renderMd(txt);const acts=document.createElement('div');acts.className='macts';const cb=mkBtn('Copy');cb.addEventListener('click',()=>navigator.clipboard.writeText(txt).then(()=>{cb.lastChild.textContent='Copied!';setTimeout(()=>cb.lastChild.textContent='Copy',1800);}));acts.appendChild(cb);row.appendChild(lbl);row.appendChild(b);row.appendChild(acts);msgsEl.appendChild(row);scrollBot();}
-function streamBub(ak='manager'){hideEmpty();const ag=AGENTS[ak]||AGENTS.manager;const row=document.createElement('div');row.className='mr a';const lbl=document.createElement('div');lbl.className='al';lbl.innerHTML=`<span class="al-dot" style="background:${ag.color}"></span>${ag.emoji} ${ag.name}`;const b=document.createElement('div');b.className='bub';const cur=document.createElement('span');cur.className='cur';b.appendChild(cur);row.appendChild(lbl);row.appendChild(b);msgsEl.appendChild(row);scrollBot();let full='';let toolBox=null;
-return{append(c){full+=c;b.innerHTML=renderMd(full);b.appendChild(cur);scrollBot();},toolCall(name,params){const d=document.createElement('div');d.className='tool-call';d.innerHTML=`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>→ ${esc(name)} <span style="opacity:.6;font-size:10.5px">${esc(JSON.stringify(params).slice(0,60))}…</span>`;b.appendChild(d);toolBox=null;scrollBot();},toolResult(name,result){const d=document.createElement('div');const isErr=typeof result==='object'&&result.error;d.className='tool-result'+(isErr?' err':' ok');const preview=typeof result==='string'?result:JSON.stringify(result,null,2);d.textContent=preview.slice(0,300)+(preview.length>300?'…':'');b.appendChild(d);scrollBot();},done(){cur.remove();const acts=document.createElement('div');acts.className='macts';const cb=mkBtn('Copy');const cap=full;cb.addEventListener('click',()=>navigator.clipboard.writeText(cap).then(()=>{cb.lastChild.textContent='Copied!';setTimeout(()=>cb.lastChild.textContent='Copy',1800);}));acts.appendChild(cb);row.appendChild(acts);}};}
+function streamBub(ak='manager'){hideEmpty();const ag=AGENTS[ak]||AGENTS.manager;const row=document.createElement('div');row.className='mr a';const lbl=document.createElement('div');lbl.className='al';lbl.innerHTML=`<span class="al-dot" style="background:${ag.color}"></span>${ag.emoji} ${ag.name}`;const b=document.createElement('div');b.className='bub';const cur=document.createElement('span');cur.className='cur';b.appendChild(cur);row.appendChild(lbl);row.appendChild(b);msgsEl.appendChild(row);scrollBot();let full='';return{append(c){full+=c;b.innerHTML=renderMd(full);b.appendChild(cur);scrollBot();},toolCall(name,params){const d=document.createElement('div');d.className='tool-call';d.innerHTML=`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>→ ${esc(name)}`;b.appendChild(d);scrollBot();},done(){cur.remove();const acts=document.createElement('div');acts.className='macts';const cb=mkBtn('Copy');const cap=full;cb.addEventListener('click',()=>navigator.clipboard.writeText(cap).then(()=>{cb.lastChild.textContent='Copied!';setTimeout(()=>cb.lastChild.textContent='Copy',1800);}));acts.appendChild(cb);row.appendChild(acts);}};}
 
 // ATTACHMENTS
 document.getElementById('fileBtn').addEventListener('click',()=>document.getElementById('fi').click());
 document.getElementById('fi').addEventListener('change',e=>{Array.from(e.target.files).forEach(f=>{const r=new FileReader();r.onload=ev=>{atts.push({name:f.name,content:ev.target.result});renderAtts();updSend();};r.readAsText(f);});e.target.value='';});
 function renderAtts(){const b=document.getElementById('abar');if(!atts.length){b.classList.add('off');b.innerHTML='';return;}b.classList.remove('off');b.innerHTML=atts.map((a,i)=>`<div class="ach"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>${esc(a.name)}<button class="arm" data-i="${i}">×</button></div>`).join('');b.querySelectorAll('.arm').forEach(btn=>btn.addEventListener('click',()=>{atts.splice(+btn.dataset.i,1);renderAtts();updSend();}));}
 
-// SEND
-function send(){let raw=inpEl.value.trim();if(!raw&&!atts.length)return;let msg=raw;if(atts.length)msg+=(raw?'\n\n':'')+atts.map(a=>'```'+a.name+'\n'+a.content+'\n```').join('\n\n');atts=[];inpEl.value='';inpEl.style.height='auto';sndBtn.disabled=true;renderAtts();addU(raw||'(see attachments)');Object.keys(AGENTS).forEach(k=>setSt(k,'idle'));curStreams={};let active=streamBub('manager');curStreams.manager=active;
-fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,sessionId:sid})})
-.then(res=>{if(!res.ok)return res.json().catch(()=>({})).then(d=>{active.append('**Error:** '+(d.error||res.statusText));active.done();sndBtn.disabled=false;});const rd=res.body.getReader(),dec=new TextDecoder();let buf='';
-function pump(){return rd.read().then(({done,value})=>{if(done){sndBtn.disabled=false;inpEl.focus();loadSess();checkOllama();return;}buf+=dec.decode(value,{stream:true});buf.split('\n').forEach((line,i,arr)=>{if(i===arr.length-1){buf=line;return;}if(!line.startsWith('data: '))return;try{const p=JSON.parse(line.slice(6));
-if(p.type==='status'){setSt(p.agent,p.status);if(p.status==='working'&&!curStreams[p.agent]){if(curStreams.manager)curStreams.manager.done();const s=streamBub(p.agent);curStreams[p.agent]=s;active=s;}}
-if(p.type==='chunk')(curStreams[p.agent]||active).append(p.chunk);
-if(p.type==='tool_call'){const s=curStreams[p.agent]||active;if(s.toolCall)s.toolCall(p.tool,p.params);}
-if(p.type==='tool_result'){const s=curStreams[p.agent]||active;if(s.toolResult)s.toolResult(p.tool,p.result);}
-if(p.type==='synthesis_chunk'){if(!curStreams.syn){Object.values(curStreams).forEach(s=>s.done&&s.done());const s=streamBub('manager');curStreams.syn=s;active=s;}curStreams.syn.append(p.chunk);}
-if(p.type==='done'){Object.values(curStreams).forEach(s=>s.done&&s.done());curStreams={};}
-if(p.type==='error'){active.append('\n\n**Error:** '+p.message);active.done();sndBtn.disabled=false;}}catch(_){}});return pump();});}return pump();})
-.catch(()=>{active.append('Could not reach the server.');active.done();sndBtn.disabled=false;});}
+// SEND — lazy bubble creation, no pre-created manager bubble
+function send(){
+  let raw=inpEl.value.trim();
+  if(!raw&&!atts.length)return;
+  let msg=raw;
+  if(atts.length)msg+=(raw?'\n\n':'')+atts.map(a=>'```'+a.name+'\n'+a.content+'\n```').join('\n\n');
+  atts=[];inpEl.value='';inpEl.style.height='auto';sndBtn.disabled=true;renderAtts();
+  addU(raw||'(see attachments)');
+  Object.keys(AGENTS).forEach(k=>setSt(k,'idle'));
+  curStreams={};
+
+  function getOrCreate(ak){
+    if(!curStreams[ak]) curStreams[ak]=streamBub(ak);
+    return curStreams[ak];
+  }
+
+  fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,sessionId:sid})})
+  .then(res=>{
+    if(!res.ok)return res.json().catch(()=>({})).then(d=>{getOrCreate('manager').append('**Error:** '+(d.error||res.statusText));Object.values(curStreams).forEach(s=>s.done());sndBtn.disabled=false;});
+    const rd=res.body.getReader(),dec=new TextDecoder();let buf='';
+    function pump(){return rd.read().then(({done,value})=>{
+      if(done){Object.values(curStreams).forEach(s=>s&&s.done&&s.done());sndBtn.disabled=false;inpEl.focus();loadSess();checkOllama();return;}
+      buf+=dec.decode(value,{stream:true});
+      buf.split('\n').forEach((line,i,arr)=>{
+        if(i===arr.length-1){buf=line;return;}
+        if(!line.startsWith('data: '))return;
+        try{
+          const p=JSON.parse(line.slice(6));
+          if(p.type==='status') setSt(p.agent,p.status);
+          if(p.type==='chunk') getOrCreate(p.agent).append(p.chunk);
+          if(p.type==='tool_call'){const s=getOrCreate(p.agent);if(s.toolCall)s.toolCall(p.tool,p.params);}
+          if(p.type==='synthesis_chunk'){
+            if(!curStreams.syn){Object.values(curStreams).forEach(s=>s&&s.done&&s.done());curStreams={};curStreams.syn=streamBub('manager');}
+            curStreams.syn.append(p.chunk);
+          }
+          if(p.type==='done'){Object.values(curStreams).forEach(s=>s&&s.done&&s.done());curStreams={};}
+          if(p.type==='error'){getOrCreate(p.agent||'manager').append('\n\n**Error:** '+p.message);sndBtn.disabled=false;}
+        }catch(_){}
+      });
+      return pump();
+    });}
+    return pump();
+  })
+  .catch(()=>{getOrCreate('manager').append('Could not reach the server.');Object.values(curStreams).forEach(s=>s&&s.done&&s.done());sndBtn.disabled=false;});
+}
 function updSend(){sndBtn.disabled=!inpEl.value.trim()&&!atts.length;}
 inpEl.addEventListener('input',()=>{inpEl.style.height='auto';inpEl.style.height=Math.min(inpEl.scrollHeight,180)+'px';updSend();});
 inpEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
@@ -358,16 +382,15 @@ document.getElementById('skBtn').addEventListener('click',()=>{skOpen=!skOpen;do
 document.getElementById('skRefresh').addEventListener('click',loadSkills);
 function loadSkills(){fetch('/skills').then(r=>r.json()).then(skills=>renderSkills(skills)).catch(()=>{});}
 function renderSkills(skills){const body=document.getElementById('skBody');const filtered=skFilter==='all'?skills:skills.filter(s=>s.agent===skFilter);document.getElementById('skillCount').textContent=`(${skills.length})`;let h='';
-h+=`<div class="sk-form"><div class="sk-form-title">Add Skill</div><input class="gi" id="skName" placeholder="Skill name"/><select class="sk-select" id="skAgent"><option value="shared">🌐 Shared — all agents</option><option value="manager">🎯 Manager</option><option value="coder">💻 Coder</option><option value="researcher">🔍 Researcher</option><option value="writer">✍️ Writer</option></select><textarea class="gta" id="skContent" placeholder="Describe the skill…"></textarea><button class="gb p" id="skSave">Add Skill</button></div>`;
+h+=`<div class="sk-form"><div class="sk-form-title">Add Skill</div><input class="gi" id="skName" placeholder="Skill name"/><select class="sk-select" id="skAgent"><option value="shared">🌐 Shared</option><option value="manager">🎯 Manager</option><option value="coder">💻 Coder</option><option value="researcher">🔍 Researcher</option><option value="writer">✍️ Writer</option></select><textarea class="gta" id="skContent" placeholder="Describe the skill…"></textarea><button class="gb p" id="skSave">Add Skill</button></div>`;
 h+=`<div class="agent-filter">`;
 [['all','All'],['shared','🌐'],['manager','🎯'],['coder','💻'],['researcher','🔍'],['writer','✍️']].forEach(([v,l])=>{h+=`<button class="af${skFilter===v?' on':''}" data-f="${v}">${l}</button>`;});
 h+='</div>';
-if(!filtered.length){h+=`<div class="sk-empty">${skFilter==='all'?'No skills yet.':'No skills for this agent.'}</div>`;}else{filtered.forEach(s=>{const color=AGENT_COLORS[s.agent]||'#6366f1';const al=s.agent==='shared'?'🌐 Shared':(AGENTS[s.agent]?`${AGENTS[s.agent].emoji} ${AGENTS[s.agent].name}`:s.agent);h+=`<div class="sk-card" data-id="${s.id}"><div class="sk-name">${esc(s.name)}</div><div class="sk-agent"><span class="sk-agent-dot" style="background:${color}"></span>${al}</div><div class="sk-content">${esc(s.content)}</div><div class="sk-actions"><button class="sk-btn" data-edit="${s.id}">Edit</button><button class="sk-btn del" data-del="${s.id}">Delete</button></div></div>`;});}
+if(!filtered.length){h+=`<div class="sk-empty">${skFilter==='all'?'No skills yet.':'No skills for this agent.'}</div>`;}else{filtered.forEach(s=>{const color=AGENT_COLORS[s.agent]||'#6366f1';const al=s.agent==='shared'?'🌐 Shared':(AGENTS[s.agent]?`${AGENTS[s.agent].emoji} ${AGENTS[s.agent].name}`:s.agent);h+=`<div class="sk-card"><div class="sk-name">${esc(s.name)}</div><div class="sk-agent"><span class="sk-agent-dot" style="background:${color}"></span>${al}</div><div class="sk-content">${esc(s.content)}</div><div class="sk-actions"><button class="sk-btn" data-edit="${s.id}">Edit</button><button class="sk-btn del" data-del="${s.id}">Delete</button></div></div>`;});}
 body.innerHTML=h;
 body.querySelectorAll('.af').forEach(b=>b.addEventListener('click',()=>{skFilter=b.dataset.f;loadSkills();}));
 document.getElementById('skSave').addEventListener('click',async()=>{const name=document.getElementById('skName').value.trim();const agent=document.getElementById('skAgent').value;const content=document.getElementById('skContent').value.trim();if(!name||!content){toast('Name and content required','err');return;}const res=await fetch('/skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,agent,content})}).then(r=>r.json());if(res.error){toast(res.error,'err');return;}toast('Skill added!','ok');loadSkills();});
-body.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Delete this skill?'))return;await fetch(`/skills/${b.dataset.del}`,{method:'DELETE'});toast('Deleted','ok');loadSkills();}));
-body.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>{const sk=skills.find(s=>s.id===+b.dataset.edit);if(!sk)return;document.getElementById('skName').value=sk.name;document.getElementById('skAgent').value=sk.agent;document.getElementById('skContent').value=sk.content;const sv=document.getElementById('skSave');sv.textContent='Update';sv.dataset.editId=sk.id;body.scrollTop=0;}));}
+body.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Delete?'))return;await fetch(`/skills/${b.dataset.del}`,{method:'DELETE'});toast('Deleted','ok');loadSkills();}));}
 
 // GITHUB PANEL
 let ghOpen=false,selRepo=null;
@@ -384,7 +407,6 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function rt(ms){const d=Date.now()-ms;if(d<60000)return'Just now';if(d<3600000)return Math.floor(d/60000)+'m ago';if(d<86400000)return Math.floor(d/3600000)+'h ago';return Math.floor(d/86400000)+'d ago';}
 function mkBtn(label){const b=document.createElement('button');b.className='abtn';const ic=document.createElementNS('http://www.w3.org/2000/svg','svg');ic.setAttribute('width','11');ic.setAttribute('height','11');ic.setAttribute('viewBox','0 0 24 24');ic.setAttribute('fill','none');ic.setAttribute('stroke','currentColor');ic.setAttribute('stroke-width','2');ic.setAttribute('stroke-linecap','round');ic.innerHTML='<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';b.appendChild(ic);b.appendChild(document.createTextNode(label));return b;}
 
-// INIT
 loadSess();
 </script>
 </body>
