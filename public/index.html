@@ -31,7 +31,7 @@ body{font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.6;bac
 #tabContent{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 .tab-panel{flex:1;display:none;flex-direction:column;overflow:hidden}
 .tab-panel.on{display:flex}
-#agentOfficeFrame{width:100%;flex:1;border:none;background:#0a0a14}
+.full-iframe{width:100%;flex:1;border:none;background:#0a0a14}
 header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgba(7,7,14,.8);backdrop-filter:blur(12px);border-bottom:1px solid var(--b1);flex-shrink:0}
 .logo{font-size:16px;font-weight:800;letter-spacing:-.3px;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hdr-mid{flex:1;display:flex;align-items:center;gap:8px}
@@ -206,12 +206,18 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
   </div>
 </header>
 <div id="ollamaWarn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span id="ollamaWarnMsg">Ollama not running.</span></div>
+
+<!-- 4 TABS -->
 <div id="tabBar">
   <div class="tab on" data-tab="chat">💬 Chat</div>
   <div class="tab" data-tab="office">🏢 Agent Office</div>
+  <div class="tab" data-tab="dashboard">📊 Dashboard</div>
   <div class="tab" data-tab="audit">📋 Audit Log</div>
 </div>
+
 <div id="tabContent">
+
+  <!-- CHAT TAB -->
   <div class="tab-panel on" id="tab-chat">
     <div id="agentBar"></div>
     <div id="workspace">
@@ -264,10 +270,18 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
       </div>
     </div>
   </div>
-  <!-- AGENT OFFICE TAB: loads our own Phaser office -->
+
+  <!-- AGENT OFFICE TAB -->
   <div class="tab-panel" id="tab-office">
-    <iframe id="agentOfficeFrame" src="about:blank" title="Agent Office"></iframe>
+    <iframe id="officeFrame" class="full-iframe" src="about:blank" title="Agent Office"></iframe>
   </div>
+
+  <!-- DASHBOARD TAB -->
+  <div class="tab-panel" id="tab-dashboard">
+    <iframe id="dashFrame" class="full-iframe" src="about:blank" title="Dashboard"></iframe>
+  </div>
+
+  <!-- AUDIT LOG TAB -->
   <div class="tab-panel" id="tab-audit" style="padding:24px;overflow-y:auto">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700">📋 Audit Log</div>
@@ -275,7 +289,9 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
     </div>
     <div id="auditTable" style="font-size:13px"></div>
   </div>
+
 </div>
+
 <div id="confirmModal">
   <div class="cm-box">
     <div class="cm-title">⚠️ Confirm Action</div>
@@ -288,6 +304,7 @@ header{display:flex;align-items:center;gap:10px;padding:10px 20px;background:rgb
   </div>
 </div>
 <div id="toast"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
@@ -297,17 +314,20 @@ const AGENTS={orchestrator:{name:'Orchestrator',emoji:'🧠',color:'#6366f1'},co
 const AS=Object.fromEntries(Object.keys(AGENTS).map(k=>[k,'idle']));
 const AM=Object.fromEntries(Object.keys(AGENTS).map(k=>[k,'']));
 
-// TABS — Agent Office tab loads office.html (same origin, served by FastAPI)
+// TABS
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>{
     document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
     document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('on'));
     tab.classList.add('on');
-    const panel=document.getElementById('tab-'+tab.dataset.tab);
-    if(panel) panel.classList.add('on');
+    document.getElementById('tab-'+tab.dataset.tab).classList.add('on');
     if(tab.dataset.tab==='office'){
-      const frame=document.getElementById('agentOfficeFrame');
-      if(frame.src==='about:blank') frame.src='/office.html';
+      const f=document.getElementById('officeFrame');
+      if(f.src==='about:blank') f.src='/office.html';
+    }
+    if(tab.dataset.tab==='dashboard'){
+      const f=document.getElementById('dashFrame');
+      if(f.src==='about:blank') f.src='/dashboard.html';
     }
     if(tab.dataset.tab==='audit') loadAudit();
   });
