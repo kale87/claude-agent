@@ -21,6 +21,26 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
 
 # ---------------------------------------------------------------------------
+# GitHub keyword detector — if message mentions GitHub actions, skip manager
+# ---------------------------------------------------------------------------
+GITHUB_KEYWORDS = [
+    "repo", "repos", "repository", "repositories",
+    "branch", "branches", "commit", "push", "pull request", "pr",
+    "merge", "file", "files", "folder", "code", "read", "show me",
+    "list", "open", "create branch", "fix", "update", "write to",
+    "what's in", "what is in", "contents of", "look at", "check",
+]
+
+def is_github_task(message: str) -> bool:
+    """Return True if the message is clearly a GitHub operation."""
+    msg = message.lower()
+    # Must mention a GitHub concept
+    has_keyword = any(kw in msg for kw in GITHUB_KEYWORDS)
+    # And mention a repo name pattern (word/word) or explicit github terms
+    has_repo = bool(re.search(r'\b(repo|repository|github|branch|commit|file|files|pr|merge)\b', msg))
+    return has_keyword and has_repo
+
+# ---------------------------------------------------------------------------
 # GitHub tool definitions
 # ---------------------------------------------------------------------------
 GITHUB_TOOLS = [
@@ -28,7 +48,7 @@ GITHUB_TOOLS = [
         "type": "function",
         "function": {
             "name": "list_repos",
-            "description": "List all GitHub repositories for the authenticated user. Use ONLY when the user wants to see their list of repos. Do NOT use this to see the contents/files inside a repo — use list_files for that.",
+            "description": "List all GitHub repositories for the authenticated user. Use ONLY when the user wants to see their list of repos. Do NOT use this to see files inside a repo.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
@@ -51,14 +71,14 @@ GITHUB_TOOLS = [
         "type": "function",
         "function": {
             "name": "list_files",
-            "description": "List the files and folders inside a GitHub repository directory. Use this to explore what files are in a repo or subdirectory. NOT for listing repos — use list_repos for that.",
+            "description": "List the files and folders inside a GitHub repository directory. Use this to explore what files are in a repo or subdirectory. NOT for listing repos.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "owner":  {"type": "string", "description": "GitHub username who owns the repo"},
                     "repo":   {"type": "string", "description": "Exact repository name"},
-                    "path":   {"type": "string", "description": "Subdirectory path. Use empty string for root."},
-                    "branch": {"type": "string", "description": "Branch name. Defaults to the repo default branch."},
+                    "path":   {"type": "string", "description": "Subdirectory path. Empty string for root."},
+                    "branch": {"type": "string", "description": "Branch name. Defaults to main."},
                 },
                 "required": ["owner", "repo"],
             },
@@ -74,8 +94,8 @@ GITHUB_TOOLS = [
                 "properties": {
                     "owner":  {"type": "string"},
                     "repo":   {"type": "string"},
-                    "path":   {"type": "string", "description": "Full path to the file, e.g. src/App.js"},
-                    "branch": {"type": "string", "description": "Branch name"},
+                    "path":   {"type": "string", "description": "Full path to the file e.g. src/App.js"},
+                    "branch": {"type": "string"},
                 },
                 "required": ["owner", "repo", "path"],
             },
@@ -85,14 +105,14 @@ GITHUB_TOOLS = [
         "type": "function",
         "function": {
             "name": "commit_file",
-            "description": "Create or update a file in a GitHub repository. This commits AND pushes in one step.",
+            "description": "Create or update a file in a GitHub repository. Commits AND pushes in one step.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "owner":   {"type": "string"},
                     "repo":    {"type": "string"},
-                    "path":    {"type": "string", "description": "Full path to the file"},
-                    "content": {"type": "string", "description": "Complete file content to write"},
+                    "path":    {"type": "string"},
+                    "content": {"type": "string", "description": "Complete file content"},
                     "message": {"type": "string", "description": "Commit message"},
                     "branch":  {"type": "string", "description": "Branch to commit to. Defaults to main."},
                 },
@@ -121,15 +141,15 @@ GITHUB_TOOLS = [
         "type": "function",
         "function": {
             "name": "merge_branch",
-            "description": "Merge one branch directly into another branch in a GitHub repository.",
+            "description": "Merge one branch into another in a GitHub repository.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "owner":   {"type": "string"},
                     "repo":    {"type": "string"},
-                    "base":    {"type": "string", "description": "The branch to merge INTO"},
-                    "head":    {"type": "string", "description": "The branch to merge FROM"},
-                    "message": {"type": "string", "description": "Merge commit message"},
+                    "base":    {"type": "string", "description": "Branch to merge INTO"},
+                    "head":    {"type": "string", "description": "Branch to merge FROM"},
+                    "message": {"type": "string"},
                 },
                 "required": ["owner", "repo", "base", "head"],
             },
@@ -148,7 +168,7 @@ GITHUB_TOOLS = [
                     "title": {"type": "string"},
                     "head":  {"type": "string", "description": "Branch to merge FROM"},
                     "base":  {"type": "string", "description": "Branch to merge INTO. Defaults to main."},
-                    "body":  {"type": "string", "description": "PR description"},
+                    "body":  {"type": "string"},
                 },
                 "required": ["owner", "repo", "title", "head"],
             },
@@ -304,49 +324,44 @@ AGENTS = {
         "name": "Manager", "emoji": "🎯", "color": "#6366f1", "tools": False,
         "system": """You are the Manager agent of Kal-AI.
 
-STRICT RULES:
-1. NEVER answer questions using invented or assumed information. Only state facts you are certain of.
-2. For SIMPLE QUESTIONS about general knowledge or code concepts — answer directly.
-3. For ANY request involving GitHub (repos, files, branches, commits, PRs) — ALWAYS delegate to coder. Never describe what is in a repo yourself.
-4. For research or analysis tasks — delegate to researcher.
-5. For writing tasks — delegate to writer.
-6. NEVER output placeholder text like "The contents are..." before a specialist has run.
+Rules:
+1. For SIMPLE QUESTIONS about general knowledge or code concepts — answer directly.
+2. For ANY task involving GitHub — delegate to coder.
+3. For research tasks — delegate to researcher.
+4. For writing tasks — delegate to writer.
+5. NEVER invent or assume information. Only report what specialists actually return.
 
-To delegate use EXACTLY this format (no other text between tags):
+To delegate:
 <delegate agent="coder">precise task</delegate>
 <delegate agent="researcher">precise task</delegate>
 <delegate agent="writer">precise task</delegate>
 
-After specialists return results, present ONLY what they actually found — never invent or summarize from memory.""",
+After specialists finish, present ONLY what they actually found.""",
     },
     "coder": {
         "name": "Coder", "emoji": "💻", "color": "#10b981", "tools": True,
-        "system": """You are the Coder agent of Kal-AI. You write code and work directly with GitHub repositories.
+        "system": """You are the Coder agent of Kal-AI. GitHub username: kale87.
 
-GitHub username for this account is: kale87
+You have GitHub tools. ALWAYS use them — never guess or invent.
 
-TOOL USAGE RULES — follow exactly:
-- To see what REPOS exist: use list_repos
-- To see FILES inside a repo: use list_files with the owner and repo name
-- To read a file: use read_file
-- To save/push changes: use commit_file
-- NEVER call list_repos to see the contents of a repo — that lists ALL repos, not files inside one
-- NEVER guess or invent file names or repo contents — always use tools to check
-- NEVER say you did something without actually calling the tool
+Tool guide:
+- list_repos → see all repos
+- list_files → see files INSIDE a specific repo (owner + repo required)
+- read_file → read a specific file
+- commit_file → save/push changes
+- create_branch, merge_branch, create_pr, merge_pr, list_prs → git operations
 
-Always use tools to get real data. Report exactly what the tools return.""",
+NEVER call list_repos to see what's inside a repo. Use list_files for that.
+NEVER answer without calling a tool when GitHub data is needed.""",
     },
     "researcher": {
         "name": "Researcher", "emoji": "🔍", "color": "#f59e0b", "tools": True,
-        "system": """You are the Researcher agent of Kal-AI. You gather and analyze information.
-
-GitHub username for this account is: kale87
-
-You have GitHub tools. Use them to explore repos and read files. Report exactly what the tools return — never guess or invent.""",
+        "system": """You are the Researcher agent of Kal-AI. GitHub username: kale87.
+Use GitHub tools to explore repos and read files. Report exactly what the tools return.""",
     },
     "writer": {
         "name": "Writer", "emoji": "✍️", "color": "#ec4899", "tools": False,
-        "system": "You are the Writer agent of Kal-AI. Write clear documentation, commit messages, and content based only on information you are given.",
+        "system": "You are the Writer agent of Kal-AI. Write clear documentation and content based only on information you are given.",
     },
 }
 
@@ -572,22 +587,55 @@ async def chat(request: Request):
         sess    = get_session(session_id)
         history = sess["messages"]
         history.append({"role": "user", "content": message, "agent": "user"})
-        yield sse({"type": "status", "agent": "manager", "status": "thinking"})
 
         chat_msgs = [{"role": m["role"], "content": m["content"]}
                      for m in history if m["role"] in ("user", "assistant")]
 
-        # Step 1: Manager decides
+        # ---------------------------------------------------------------------------
+        # FAST PATH: GitHub task — skip manager, go straight to Coder
+        # ---------------------------------------------------------------------------
+        if is_github_task(message):
+            yield sse({"type": "status", "agent": "coder", "status": "working"})
+
+            chunks, tool_events = [], []
+            def on_chunk(c): chunks.append(c)
+            def on_tool_call(n, p): tool_events.append(("call", n, p))
+            def on_tool_result(n, r): tool_events.append(("result", n, r))
+
+            result = await run_agent_with_tools("coder", message, on_chunk, on_tool_call, on_tool_result)
+
+            for c in chunks:
+                yield sse({"type": "chunk", "agent": "coder", "chunk": c})
+            for ev in tool_events:
+                if ev[0] == "call":
+                    yield sse({"type": "tool_call", "agent": "coder", "tool": ev[1], "params": ev[2]})
+                else:
+                    try: parsed = json.loads(ev[2])
+                    except Exception: parsed = ev[2]
+                    yield sse({"type": "tool_result", "agent": "coder", "tool": ev[1], "result": parsed})
+
+            history.append({"role": "assistant", "content": result, "agent": "coder"})
+            title = message[:60] if sess["title"] == "New conversation" else sess["title"]
+            save_session(session_id, title, history)
+            yield sse({"type": "status", "agent": "coder", "status": "done"})
+            yield sse({"type": "done", "sessionId": session_id, "delegations": ["coder"]})
+            for k in AGENT_KEYS:
+                yield sse({"type": "status", "agent": k, "status": "idle"})
+            return
+
+        # ---------------------------------------------------------------------------
+        # NORMAL PATH: Manager decides
+        # ---------------------------------------------------------------------------
+        yield sse({"type": "status", "agent": "manager", "status": "thinking"})
+
         manager_response = ""
         async for chunk in ollama_stream(build_system("manager"), chat_msgs):
             manager_response += chunk
             yield sse({"type": "chunk", "agent": "manager", "chunk": chunk})
 
-        # Step 2: Parse delegations
         delegations = re.findall(r'<delegate agent="(\w+)">(.*?)</delegate>',
                                   manager_response, re.DOTALL)
 
-        # No delegations — manager answered directly
         if not delegations:
             history.append({"role": "assistant", "content": manager_response, "agent": "manager"})
             title = message[:60] if sess["title"] == "New conversation" else sess["title"]
@@ -597,7 +645,6 @@ async def chat(request: Request):
                 yield sse({"type": "status", "agent": k, "status": "idle"})
             return
 
-        # Step 3: Run specialists
         specialist_results = {}
         for agent_key, task in delegations:
             if agent_key not in AGENTS:
@@ -624,15 +671,14 @@ async def chat(request: Request):
             specialist_results[agent_key] = result
             yield sse({"type": "status", "agent": agent_key, "status": "done"})
 
-        # Step 4: Manager synthesizes — only from real specialist output
         yield sse({"type": "status", "agent": "manager", "status": "synthesizing"})
-        summary = "\n\n".join(f"[{AGENTS[k]['name']} actual output]:\n{v}" for k, v in specialist_results.items())
+        summary = "\n\n".join(f"[{AGENTS[k]['name']} output]:\n{v}" for k, v in specialist_results.items())
         synth_msgs = chat_msgs + [
             {"role": "assistant", "content": manager_response},
             {"role": "user", "content": (
                 f'The user asked: "{message}"\n\n'
-                f'Here is exactly what the specialists found (do not add, invent, or change anything):\n{summary}\n\n'
-                f'Present this information clearly to the user. Only report what is in the specialist output above.'
+                f'Specialist results (report only this, do not invent):\n{summary}\n\n'
+                f'Present this clearly to the user.'
             )},
         ]
         synthesis = ""
