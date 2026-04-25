@@ -19,34 +19,7 @@ OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
-
-# ---------------------------------------------------------------------------
-# GitHub keyword detector
-# ---------------------------------------------------------------------------
-def is_github_task(message: str) -> bool:
-    msg = message.lower()
-    keywords = ["repo","repos","repository","branch","branches","commit","push",
-                "pull request","pr","merge","file","files","folder","read",
-                "show me","list","what's in","what is in","contents","look at","check"]
-    has_kw   = any(k in msg for k in keywords)
-    has_repo = bool(re.search(r'\b(repo|repository|github|branch|commit|file|files|pr|merge)\b', msg))
-    return has_kw and has_repo
-
-# ---------------------------------------------------------------------------
-# GitHub tools
-# ---------------------------------------------------------------------------
-GITHUB_TOOLS = [
-    {"type":"function","function":{"name":"list_repos","description":"List all GitHub repositories. Use ONLY to list repos, NOT to see files inside a repo.","parameters":{"type":"object","properties":{},"required":[]}}},
-    {"type":"function","function":{"name":"list_branches","description":"List branches in a repo.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"}},"required":["owner","repo"]}}},
-    {"type":"function","function":{"name":"list_files","description":"List files and folders INSIDE a specific repo directory. Use for exploring repo contents, NOT for listing repos.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"path":{"type":"string","description":"Directory path, empty for root"},"branch":{"type":"string"}},"required":["owner","repo"]}}},
-    {"type":"function","function":{"name":"read_file","description":"Read a file's contents.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"path":{"type":"string"},"branch":{"type":"string"}},"required":["owner","repo","path"]}}},
-    {"type":"function","function":{"name":"commit_file","description":"Create or update a file (commits + pushes).","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"path":{"type":"string"},"content":{"type":"string"},"message":{"type":"string"},"branch":{"type":"string"}},"required":["owner","repo","path","content","message"]}}},
-    {"type":"function","function":{"name":"create_branch","description":"Create a new branch.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"branch":{"type":"string"},"from_branch":{"type":"string"}},"required":["owner","repo","branch"]}}},
-    {"type":"function","function":{"name":"merge_branch","description":"Merge one branch into another.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"base":{"type":"string"},"head":{"type":"string"},"message":{"type":"string"}},"required":["owner","repo","base","head"]}}},
-    {"type":"function","function":{"name":"create_pr","description":"Open a pull request.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"title":{"type":"string"},"head":{"type":"string"},"base":{"type":"string"},"body":{"type":"string"}},"required":["owner","repo","title","head"]}}},
-    {"type":"function","function":{"name":"merge_pr","description":"Merge a pull request.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"number":{"type":"integer"},"method":{"type":"string"}},"required":["owner","repo","number"]}}},
-    {"type":"function","function":{"name":"list_prs","description":"List pull requests.","parameters":{"type":"object","properties":{"owner":{"type":"string"},"repo":{"type":"string"},"state":{"type":"string"}},"required":["owner","repo"]}}},
-]
+GITHUB_USER  = "kale87"
 
 # ---------------------------------------------------------------------------
 # GitHub API
@@ -61,132 +34,140 @@ async def gh(method: str, endpoint: str, body: dict = None) -> dict:
         if resp.status_code >= 400: raise Exception(data.get("message", f"GitHub error {resp.status_code}"))
         return data
 
-async def run_tool(name: str, params: dict) -> str:
+# ---------------------------------------------------------------------------
+# Smart GitHub intent parser
+# Detects what the user wants and calls GitHub API directly
+# No model involved in tool selection
+# ---------------------------------------------------------------------------
+def parse_github_intent(message: str):
+    """
+    Returns (intent, params) or (None, None) if not a GitHub request.
+    intents: list_repos, list_files, read_file, list_branches,
+             commit_file, create_branch, list_prs, create_pr, merge_pr, merge_branch
+    """
+    msg = message.lower().strip()
+
+    # Extract repo name from message: looks for patterns like "in X repo", "kale87/X", "my X repo", "X repository"
+    repo_match = (
+        re.search(r'kale87/([\w.-]+)', message) or
+        re.search(r'(?:in|my|the|for|of)\s+["\']?([\w.-]+)["\']?\s+repo', msg) or
+        re.search(r'repo(?:sitory)?\s+["\']?([\w.-]+)["\']?', msg) or
+        re.search(r'["\']([\w.-]+)["\']\s+repo', msg)
+    )
+    repo = repo_match.group(1) if repo_match else None
+
+    # Extract file path
+    file_match = re.search(r'(?:file|read|open|show)\s+["\']?([\w./-]+\.[\w]+)["\']?', msg)
+    file_path = file_match.group(1) if file_match else None
+
+    # Extract branch
+    branch_match = re.search(r'branch\s+["\']?([\w./-]+)["\']?', msg)
+    branch = branch_match.group(1) if branch_match else None
+
+    # LIST REPOS
+    if re.search(r'(list|show|what are|get).{0,20}(my\s+)?repos?(?:itories)?', msg) and not repo:
+        return 'list_repos', {}
+
+    # LIST FILES (files/contents of a repo)
+    if repo and re.search(r'(list|show|what|files?|contents?|inside|explore|browse)', msg):
+        path_match = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir|path)', msg)
+        path = path_match.group(1) if path_match else ""
+        return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': path, 'branch': branch or ''}
+
+    # READ FILE
+    if file_path and repo:
+        return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch or ''}
+
+    # LIST BRANCHES
+    if repo and re.search(r'branch(es)?', msg):
+        return 'list_branches', {'owner': GITHUB_USER, 'repo': repo}
+
+    # LIST PRs
+    if repo and re.search(r'(pull requests?|prs?|open prs?)', msg):
+        return 'list_prs', {'owner': GITHUB_USER, 'repo': repo, 'state': 'open'}
+
+    # Has a repo but unclear intent — default to list files
+    if repo:
+        return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': '', 'branch': ''}
+
+    return None, None
+
+async def execute_intent(intent: str, params: dict) -> str:
+    """Execute a GitHub intent and return formatted markdown."""
     try:
-        if name == "list_repos":
+        if intent == 'list_repos':
             data = await gh("GET", "/user/repos?sort=updated&per_page=50")
-            return json.dumps([{"name":r["name"],"full_name":r["full_name"],"default_branch":r["default_branch"],"description":r.get("description",""),"private":r["private"]} for r in data], indent=2)
-        elif name == "list_branches":
-            data = await gh("GET", f"/repos/{params['owner']}/{params['repo']}/branches")
-            return json.dumps([b["name"] for b in data])
-        elif name == "list_files":
-            path = params.get("path","").lstrip("/")
-            branch = params.get("branch","")
-            ep = f"/repos/{params['owner']}/{params['repo']}/contents/{path}"
+            lines = ["**Your GitHub repositories:**"]
+            for r in data:
+                priv = " \U0001f512" if r.get("private") else ""
+                desc = f" \u2014 {r['description']}" if r.get("description") else ""
+                lines.append(f"- **{r['name']}**{priv}{desc}")
+            return "\n".join(lines)
+
+        elif intent == 'list_files':
+            owner, repo = params['owner'], params['repo']
+            path = params.get('path', '').lstrip('/')
+            branch = params.get('branch', '')
+            ep = f"/repos/{owner}/{repo}/contents/{path}"
             if branch: ep += f"?ref={branch}"
             data = await gh("GET", ep)
             if isinstance(data, list):
-                return json.dumps([{"name":f["name"],"type":f["type"],"path":f["path"]} for f in data], indent=2)
-            return json.dumps(data)
-        elif name == "read_file":
-            branch = params.get("branch","")
-            ep = f"/repos/{params['owner']}/{params['repo']}/contents/{params['path']}"
+                display_path = f"{repo}/{path}" if path else repo
+                lines = [f"**Files in `{display_path}`:**"]
+                dirs  = [f for f in data if f['type'] == 'dir']
+                files = [f for f in data if f['type'] != 'dir']
+                for f in sorted(dirs,  key=lambda x: x['name']): lines.append(f"- \U0001f4c1 `{f['name']}/`")
+                for f in sorted(files, key=lambda x: x['name']): lines.append(f"- \U0001f4c4 `{f['name']}`")
+                return "\n".join(lines)
+            return f"Not a directory: {json.dumps(data)}"
+
+        elif intent == 'read_file':
+            owner, repo, path = params['owner'], params['repo'], params['path']
+            branch = params.get('branch', '')
+            ep = f"/repos/{owner}/{repo}/contents/{path}"
             if branch: ep += f"?ref={branch}"
             data = await gh("GET", ep)
-            content = base64.b64decode(data["content"].replace("\n","")).decode("utf-8",errors="replace")
-            return json.dumps({"path":params["path"],"sha":data["sha"],"content":content})
-        elif name == "commit_file":
-            branch = params.get("branch","main")
-            body: dict = {"message":params["message"],"content":base64.b64encode(params["content"].encode()).decode(),"branch":branch}
-            try:
-                existing = await gh("GET", f"/repos/{params['owner']}/{params['repo']}/contents/{params['path']}?ref={branch}")
-                body["sha"] = existing["sha"]
-            except: pass
-            result = await gh("PUT", f"/repos/{params['owner']}/{params['repo']}/contents/{params['path']}", body)
-            return json.dumps({"ok":True,"commit":result.get("commit",{}).get("sha",""),"path":params["path"],"branch":branch})
-        elif name == "create_branch":
-            from_branch = params.get("from_branch","main")
-            ref_data = await gh("GET", f"/repos/{params['owner']}/{params['repo']}/git/ref/heads/{from_branch}")
-            sha = ref_data["object"]["sha"]
-            await gh("POST", f"/repos/{params['owner']}/{params['repo']}/git/refs", {"ref":f"refs/heads/{params['branch']}","sha":sha})
-            return json.dumps({"ok":True,"branch":params["branch"],"from":from_branch})
-        elif name == "merge_branch":
-            result = await gh("POST", f"/repos/{params['owner']}/{params['repo']}/merges", {"base":params["base"],"head":params["head"],"commit_message":params.get("message",f"Merge {params['head']} into {params['base']}")})
-            return json.dumps({"ok":True,"sha":result.get("sha","")})
-        elif name == "create_pr":
-            result = await gh("POST", f"/repos/{params['owner']}/{params['repo']}/pulls", {"title":params["title"],"head":params["head"],"base":params.get("base","main"),"body":params.get("body","")})
-            return json.dumps({"ok":True,"number":result["number"],"url":result["html_url"]})
-        elif name == "merge_pr":
-            result = await gh("PUT", f"/repos/{params['owner']}/{params['repo']}/pulls/{params['number']}/merge", {"merge_method":params.get("method","squash")})
-            return json.dumps({"ok":True,"merged":result.get("merged",False),"sha":result.get("sha","")})
-        elif name == "list_prs":
-            state = params.get("state","open")
-            data = await gh("GET", f"/repos/{params['owner']}/{params['repo']}/pulls?state={state}&per_page=20")
-            return json.dumps([{"number":p["number"],"title":p["title"],"head":p["head"]["ref"],"base":p["base"]["ref"],"state":p["state"]} for p in data], indent=2)
+            content = base64.b64decode(data["content"].replace("\n", "")).decode("utf-8", errors="replace")
+            ext = path.split('.')[-1] if '.' in path else ''
+            truncated = content[:4000] + ("\n..." if len(content) > 4000 else "")
+            return f"**`{path}`:**\n```{ext}\n{truncated}\n```"
+
+        elif intent == 'list_branches':
+            owner, repo = params['owner'], params['repo']
+            data = await gh("GET", f"/repos/{owner}/{repo}/branches")
+            lines = [f"**Branches in `{repo}`:**"]
+            for b in data: lines.append(f"- `{b['name']}`")
+            return "\n".join(lines)
+
+        elif intent == 'list_prs':
+            owner, repo = params['owner'], params['repo']
+            state = params.get('state', 'open')
+            data = await gh("GET", f"/repos/{owner}/{repo}/pulls?state={state}&per_page=20")
+            lines = [f"**{'Open' if state=='open' else state.title()} PRs in `{repo}`:**"]
+            if not data: lines.append("No PRs found.")
+            for p in data: lines.append(f"- #{p['number']} **{p['title']}** (`{p['head']['ref']}` \u2192 `{p['base']['ref']}`)") 
+            return "\n".join(lines)
+
         else:
-            return json.dumps({"error":f"Unknown tool: {name}"})
+            return f"Unknown intent: {intent}"
+
     except Exception as e:
-        return json.dumps({"error":str(e)})
-
-# ---------------------------------------------------------------------------
-# Format tool results into readable markdown
-# ---------------------------------------------------------------------------
-def format_tool_result(name: str, args: dict, result: str) -> str:
-    try: data = json.loads(result)
-    except: data = result
-
-    if name == "list_repos" and isinstance(data, list):
-        lines = ["**Your repositories:**"]
-        for r in data:
-            priv = " \U0001f512" if r.get("private") else ""
-            desc = f" \u2014 {r['description']}" if r.get("description") else ""
-            lines.append(f"- **{r['name']}**{priv}{desc}")
-        return "\n".join(lines)
-
-    elif name == "list_files" and isinstance(data, list):
-        repo = args.get("repo","")
-        path = args.get("path","") or "root"
-        lines = [f"**Files in `{repo}/{path}`:**"]
-        for f in data:
-            icon = "\U0001f4c1" if f.get("type")=="dir" else "\U0001f4c4"
-            lines.append(f"- {icon} `{f['name']}`")
-        return "\n".join(lines)
-
-    elif name == "list_branches" and isinstance(data, list):
-        repo = args.get("repo","")
-        lines = [f"**Branches in `{repo}`:**"]
-        for b in data: lines.append(f"- `{b}`")
-        return "\n".join(lines)
-
-    elif name == "read_file" and isinstance(data, dict) and "content" in data:
-        path = data.get("path","")
-        content = data["content"]
-        ext = path.split(".")[-1] if "." in path else ""
-        truncated = content[:3000] + ("\n..." if len(content)>3000 else "")
-        return f"**`{path}`:**\n```{ext}\n{truncated}\n```"
-
-    elif name == "commit_file" and isinstance(data, dict) and data.get("ok"):
-        return f"\u2705 Committed `{data.get('path')}` to `{data.get('branch')}` (commit `{data.get('commit','')[:7]}`)"
-
-    elif name == "create_branch" and isinstance(data, dict) and data.get("ok"):
-        return f"\u2705 Created branch `{data.get('branch')}` from `{data.get('from')}`"
-
-    elif name == "create_pr" and isinstance(data, dict) and data.get("ok"):
-        return f"\u2705 PR #{data.get('number')} created: {data.get('url')}"
-
-    elif name == "merge_pr" and isinstance(data, dict) and data.get("ok"):
-        return f"\u2705 PR merged (commit `{data.get('sha','')[:7]}`)"
-
-    elif name == "list_prs" and isinstance(data, list):
-        repo = args.get("repo","")
-        lines = [f"**Open PRs in `{repo}`:**"]
-        if not data: lines.append("No open PRs.")
-        for p in data: lines.append(f"- #{p['number']} **{p['title']}** (`{p['head']}` \u2192 `{p['base']}`)") 
-        return "\n".join(lines)
-
-    elif isinstance(data, dict) and data.get("error"):
-        return f"\u274c Error: {data['error']}"
-
-    return f"```\n{result[:500]}\n```"
+        return f"\u274c Error: {str(e)}"
 
 # ---------------------------------------------------------------------------
 # Agents
 # ---------------------------------------------------------------------------
 AGENTS = {
-    "manager": {"name":"Manager","emoji":"🎯","color":"#6366f1","tools":False,"system":"""You are the Manager agent of Kal-AI.\n\nRules:\n1. For SIMPLE QUESTIONS about general knowledge \u2014 answer directly.\n2. For ANY GitHub task \u2014 delegate to coder.\n3. For research \u2014 delegate to researcher.\n4. For writing \u2014 delegate to writer.\n5. NEVER invent information.\n\nTo delegate:\n<delegate agent=\"coder\">task</delegate>\n\nAfter specialists finish, present ONLY what they found."""},
-    "coder": {"name":"Coder","emoji":"💻","color":"#10b981","tools":True,"system":"""You are the Coder agent. GitHub username: kale87.\n\nALWAYS use tools \u2014 never guess.\n- list_repos \u2192 list all repos\n- list_files \u2192 files inside a repo\n- read_file \u2192 read a file\n- commit_file \u2192 save changes\n\nNEVER use list_repos to see files inside a repo."""},
-    "researcher": {"name":"Researcher","emoji":"🔍","color":"#f59e0b","tools":True,"system":"You are the Researcher agent. GitHub username: kale87. Use tools, report exactly what they return."},
-    "writer": {"name":"Writer","emoji":"✍️","color":"#ec4899","tools":False,"system":"You are the Writer agent. Write content based only on information given to you."},
+    "manager": {"name":"Manager","emoji":"🎯","color":"#6366f1","system":"""You are the Manager agent of Kal-AI.
+For simple questions, answer directly.
+For complex tasks involving code or research, delegate:
+<delegate agent="coder">task</delegate>
+<delegate agent="researcher">task</delegate>
+<delegate agent="writer">task</delegate>
+NEVER invent information."""},
+    "coder":      {"name":"Coder",     "emoji":"💻","color":"#10b981","system":"You are the Coder agent. Write clean code, fix bugs, and explain technical concepts clearly."},
+    "researcher": {"name":"Researcher","emoji":"🔍","color":"#f59e0b","system":"You are the Researcher agent. Gather and analyze information clearly."},
+    "writer":     {"name":"Writer",    "emoji":"✍️", "color":"#ec4899","system":"You are the Writer agent. Write clear documentation and content."},
 }
 AGENT_KEYS = list(AGENTS.keys())
 
@@ -222,7 +203,7 @@ def get_skills(agent_key):
     with get_db() as conn:
         rows = conn.execute("SELECT name,content FROM skills WHERE agent='shared' OR agent=? ORDER BY created_at", (agent_key,)).fetchall()
     if not rows: return ""
-    return "\n\n---\n## Your Skills\n" + "\n\n".join(f"### Skill: {r['name']}\n{r['content']}" for r in rows)
+    return "\n\n---\n## Your Skills\n" + "\n\n".join(f"### {r['name']}\n{r['content']}" for r in rows)
 
 def build_system(agent_key):
     return AGENTS[agent_key]["system"] + get_skills(agent_key)
@@ -230,13 +211,6 @@ def build_system(agent_key):
 # ---------------------------------------------------------------------------
 # Ollama
 # ---------------------------------------------------------------------------
-async def ollama_call(system, messages, tools=None):
-    payload = {"model":OLLAMA_MODEL,"messages":[{"role":"system","content":system}]+messages,"stream":False}
-    if tools: payload["tools"] = tools
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(f"{OLLAMA_HOST}/api/chat", json=payload)
-        return resp.json().get("message", {"role":"assistant","content":""})
-
 async def ollama_stream(system, messages) -> AsyncGenerator[str, None]:
     payload = {"model":OLLAMA_MODEL,"messages":[{"role":"system","content":system}]+messages,"stream":True}
     async with httpx.AsyncClient(timeout=120) as client:
@@ -247,61 +221,6 @@ async def ollama_stream(system, messages) -> AsyncGenerator[str, None]:
                     chunk = json.loads(line).get("message",{}).get("content","")
                     if chunk: yield chunk
                 except: pass
-
-# ---------------------------------------------------------------------------
-# Agent runner — yields SSE events directly (real-time)
-# ---------------------------------------------------------------------------
-async def agent_sse(agent_key: str, task: str, sse_fn):
-    """
-    Run agent with tools, yielding SSE strings in real time.
-    Returns final text.
-    """
-    system   = build_system(agent_key)
-    tools    = GITHUB_TOOLS if AGENTS[agent_key]["tools"] else None
-    messages = [{"role":"user","content":task}]
-    full_text = ""
-    last_tool_results = []
-
-    for _ in range(10):
-        msg = await ollama_call(system, messages, tools)
-        tool_calls = msg.get("tool_calls", [])
-
-        if not tool_calls:
-            content = msg.get("content","").strip()
-            # If model returned nothing after tools, format results ourselves
-            if not content and last_tool_results:
-                for name, args, result in last_tool_results:
-                    content += format_tool_result(name, args, result) + "\n\n"
-                content = content.strip()
-            full_text += content
-            yield sse_fn({"type":"chunk","agent":agent_key,"chunk":content})
-            break
-
-        messages.append({"role":"assistant","content":msg.get("content",""),"tool_calls":tool_calls})
-        last_tool_results = []
-
-        for tc in tool_calls:
-            fn   = tc.get("function",{})
-            name = fn.get("name","")
-            args = fn.get("arguments",{})
-            if isinstance(args, str):
-                try: args = json.loads(args)
-                except: args = {}
-
-            # Emit tool_call immediately
-            yield sse_fn({"type":"tool_call","agent":agent_key,"tool":name,"params":args})
-
-            result = await run_tool(name, args)
-            last_tool_results.append((name, args, result))
-
-            # Emit tool_result immediately
-            try: parsed = json.loads(result)
-            except: parsed = result
-            yield sse_fn({"type":"tool_result","agent":agent_key,"tool":name,"result":parsed})
-
-            messages.append({"role":"tool","content":result})
-
-    return full_text
 
 # ---------------------------------------------------------------------------
 # App
@@ -387,19 +306,15 @@ async def chat(request: Request):
         history.append({"role":"user","content":message,"agent":"user"})
         chat_msgs = [{"role":m["role"],"content":m["content"]} for m in history if m["role"] in ("user","assistant")]
 
-        # FAST PATH: GitHub task — go straight to Coder
-        if is_github_task(message):
+        # FAST PATH: detect GitHub intent and execute directly
+        intent, params = parse_github_intent(message)
+        if intent:
             yield sse({"type":"status","agent":"coder","status":"working"})
-            final_text = ""
-            async for event in agent_sse("coder", message, sse):
-                yield event
-                # capture final text from chunk events
-                try:
-                    d = json.loads(event[6:])  # strip "data: "
-                    if d.get("type") == "chunk":
-                        final_text += d.get("chunk","")
-                except: pass
-            history.append({"role":"assistant","content":final_text,"agent":"coder"})
+            yield sse({"type":"tool_call","agent":"coder","tool":intent,"params":params})
+            result = await execute_intent(intent, params)
+            yield sse({"type":"tool_result","agent":"coder","tool":intent,"result":result})
+            yield sse({"type":"chunk","agent":"coder","chunk":result})
+            history.append({"role":"assistant","content":result,"agent":"coder"})
             title = message[:60] if sess["title"]=="New conversation" else sess["title"]
             save_session(session_id, title, history)
             yield sse({"type":"status","agent":"coder","status":"done"})
@@ -407,7 +322,7 @@ async def chat(request: Request):
             for k in AGENT_KEYS: yield sse({"type":"status","agent":k,"status":"idle"})
             return
 
-        # NORMAL PATH: Manager
+        # NORMAL PATH: Manager with streaming
         yield sse({"type":"status","agent":"manager","status":"thinking"})
         manager_response = ""
         async for chunk in ollama_stream(build_system("manager"), chat_msgs):
@@ -428,20 +343,16 @@ async def chat(request: Request):
         for agent_key, task in delegations:
             if agent_key not in AGENTS: continue
             yield sse({"type":"status","agent":agent_key,"status":"working"})
-            final_text = ""
-            async for event in agent_sse(agent_key, task.strip(), sse):
-                yield event
-                try:
-                    d = json.loads(event[6:])
-                    if d.get("type") == "chunk":
-                        final_text += d.get("chunk","")
-                except: pass
-            specialist_results[agent_key] = final_text
+            result = ""
+            async for chunk in ollama_stream(build_system(agent_key), [{"role":"user","content":task.strip()}]):
+                result += chunk
+                yield sse({"type":"chunk","agent":agent_key,"chunk":chunk})
+            specialist_results[agent_key] = result
             yield sse({"type":"status","agent":agent_key,"status":"done"})
 
         yield sse({"type":"status","agent":"manager","status":"synthesizing"})
-        summary = "\n\n".join(f"[{AGENTS[k]['name']} output]:\n{v}" for k,v in specialist_results.items())
-        synth_msgs = chat_msgs + [{"role":"assistant","content":manager_response},{"role":"user","content":f'User asked: "{message}"\n\nSpecialist results:\n{summary}\n\nPresent clearly, do not invent anything.'}]
+        summary = "\n\n".join(f"[{AGENTS[k]['name']}]:\n{v}" for k,v in specialist_results.items())
+        synth_msgs = chat_msgs + [{"role":"assistant","content":manager_response},{"role":"user","content":f'User asked: "{message}"\n\nResults:\n{summary}\n\nPresent clearly.'}]
         synthesis = ""
         async for chunk in ollama_stream(build_system("manager"), synth_msgs):
             synthesis += chunk
