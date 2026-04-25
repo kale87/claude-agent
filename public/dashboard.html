@@ -14,433 +14,231 @@
   --ac:#6366f1;--ok:#4ade80;--warn:#fbbf24;--err:#f87171;
   --c-orch:#6366f1;--c-coder:#10b981;--c-analyst:#f59e0b;
 }
-html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'JetBrains Mono',monospace,system-ui;font-size:13px;overflow:hidden;}
-
-/* LAYOUT */
-.dash{display:grid;grid-template-rows:48px 1fr;height:100vh;}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'JetBrains Mono',monospace,system-ui;font-size:13px;overflow:hidden}
+.dash{display:grid;grid-template-rows:48px 1fr;height:100vh}
 .dash-header{
   display:flex;align-items:center;justify-content:space-between;
-  padding:0 20px;background:var(--bg2);
-  border-bottom:1px solid var(--b1);
+  padding:0 20px;background:var(--bg2);border-bottom:1px solid var(--b1);
 }
 .dash-title{
-  font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;
-  background:linear-gradient(135deg,#6366f1,#a78bfa);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;
+  background:linear-gradient(135deg,#6366f1,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
-.dash-ws{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);}
-.ws-dot{width:5px;height:5px;border-radius:50%;background:var(--muted);}
-.ws-dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok);}
-.dash-time{font-size:11px;color:var(--muted);}
-
-.dash-body{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto 1fr;gap:12px;padding:12px;overflow:hidden;}
-
-/* CARDS */
-.card{
-  background:var(--bg2);border:1px solid var(--b1);
-  border-radius:10px;padding:16px;
-  display:flex;flex-direction:column;gap:10px;
-  overflow:hidden;
-}
-.card-title{
-  font-size:9px;font-weight:700;letter-spacing:2px;
-  text-transform:uppercase;color:var(--muted);
-  display:flex;align-items:center;gap:6px;
-}
-.card-title::before{content:'';width:3px;height:10px;border-radius:2px;background:var(--ac);}
-
-/* AGENT STAT CARDS */
-.agent-card{position:relative;overflow:hidden;}
-.agent-card::before{
-  content:'';position:absolute;top:-20px;right:-20px;
-  width:80px;height:80px;border-radius:50%;
-  background:var(--c);opacity:0.06;
-}
-.agent-name{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;}
-.agent-emoji{font-size:20px;}
-.agent-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.stat-box{
-  background:var(--s1);border:1px solid var(--b1);
-  border-radius:6px;padding:8px 10px;
-}
-.stat-val{font-size:20px;font-weight:700;color:var(--c);line-height:1;}
-.stat-lbl{font-size:9px;color:var(--muted);margin-top:3px;letter-spacing:1px;text-transform:uppercase;}
-.agent-status-bar{
-  height:3px;border-radius:2px;
-  background:var(--b1);
-  overflow:hidden;
-}
-.agent-status-fill{
-  height:100%;border-radius:2px;
-  background:var(--c);
-  transition:width 0.5s ease;
-}
-.status-badge{
-  display:inline-flex;align-items:center;gap:4px;
-  padding:3px 8px;border-radius:20px;
-  font-size:10px;font-weight:600;
-  border:1px solid var(--c);color:var(--c);
-  background:rgba(var(--cr),0.1);
-}
-.status-dot-sm{width:5px;height:5px;border-radius:50%;background:var(--c);}
-
-/* ACTIVITY FEED */
-.activity-card{grid-column:1/-1;}
-#activity-feed{
-  flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;
-  max-height:240px;
-}
-#activity-feed::-webkit-scrollbar{width:3px;}
-#activity-feed::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px;}
-.feed-entry{
-  display:flex;align-items:flex-start;gap:10px;
-  padding:7px 10px;border-radius:6px;
-  background:var(--s1);border:1px solid var(--b1);
-  animation:slideUp 0.25s ease;
-}
-@keyframes slideUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
-.feed-time{color:var(--muted);font-size:10px;flex-shrink:0;padding-top:1px;}
-.feed-agent{font-weight:700;font-size:11px;flex-shrink:0;}
-.feed-action{font-size:11px;color:var(--muted);}
-.feed-detail{font-size:10px;color:var(--muted);opacity:0.7;margin-top:2px;}
-.feed-status{
-  margin-left:auto;flex-shrink:0;
-  font-size:9px;font-weight:700;letter-spacing:1px;
-  padding:2px 6px;border-radius:10px;
-}
-.feed-status.ok{color:var(--ok);background:rgba(74,222,128,0.1);}
-.feed-status.err{color:var(--err);background:rgba(248,113,113,0.1);}
-.feed-status.rejected{color:var(--warn);background:rgba(251,191,36,0.1);}
-
-/* TASK BOARD */
-.task-card{grid-column:span 2;}
-#task-board{display:flex;gap:8px;flex:1;overflow-x:auto;}
-#task-board::-webkit-scrollbar{height:3px;}
-#task-board::-webkit-scrollbar-thumb{background:var(--b2);}
-.task-col{flex:1;min-width:120px;display:flex;flex-direction:column;gap:6px;}
-.task-col-title{
-  font-size:9px;letter-spacing:2px;text-transform:uppercase;
-  color:var(--muted);padding-bottom:6px;
-  border-bottom:1px solid var(--b1);
-}
-.task-item{
-  padding:8px 10px;border-radius:6px;
-  background:var(--s1);border:1px solid var(--b1);
-  font-size:11px;line-height:1.4;
-}
-.task-item-agent{font-size:9px;color:var(--muted);margin-top:4px;}
-.empty-col{font-size:10px;color:var(--muted);font-style:italic;}
-
-/* MINI CHART */
-.chart-card{}
-#activity-chart{width:100%;height:60px;}
-
-/* COUNTERS */
-.counters{display:flex;gap:10px;}
-.counter-box{
-  flex:1;background:var(--s1);border:1px solid var(--b1);
-  border-radius:6px;padding:8px 12px;text-align:center;
-}
-.counter-val{font-size:22px;font-weight:700;color:var(--tx);}
-.counter-lbl{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:2px;}
+.dash-ws{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.ws-dot{width:5px;height:5px;border-radius:50%;background:var(--muted)}
+.ws-dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.counters{display:flex;gap:8px}
+.counter-box{background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:6px 14px;text-align:center}
+.counter-val{font-size:20px;font-weight:700;color:var(--tx)}
+.counter-lbl{font-size:8px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:1px}
+.dash-body{display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto 1fr;gap:10px;padding:10px;overflow:hidden}
+.card{background:var(--bg2);border:1px solid var(--b1);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;overflow:hidden;transition:border-color 0.3s}
+.card-title{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:6px}
+.card-title::before{content:'';width:3px;height:10px;border-radius:2px;background:var(--ac)}
+.agent-card{position:relative;overflow:hidden}
+.agent-card.active{border-color:var(--c)!important;box-shadow:0 0 20px -6px var(--c)}
+.agent-card::before{content:'';position:absolute;top:-30px;right:-30px;width:100px;height:100px;border-radius:50%;background:var(--c);opacity:0.05;transition:opacity 0.3s}
+.agent-card.active::before{opacity:0.1}
+.agent-name{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.agent-emoji{font-size:18px}
+.agent-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat-box{background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:7px 10px}
+.stat-val{font-size:18px;font-weight:700;color:var(--c);line-height:1}
+.stat-lbl{font-size:8px;color:var(--muted);margin-top:2px;letter-spacing:1px;text-transform:uppercase}
+.agent-bar{height:3px;border-radius:2px;background:var(--b1);overflow:hidden;margin-top:2px}
+.agent-bar-fill{height:100%;border-radius:2px;background:var(--c);transition:width 0.6s ease}
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;border:1px solid var(--c);color:var(--c);margin-left:auto}
+.sdot{width:4px;height:4px;border-radius:50%;background:var(--c)}
+.status-badge.active .sdot{animation:sdotPulse 0.7s ease-in-out infinite alternate}
+@keyframes sdotPulse{to{transform:scale(2.5);opacity:0.3}}
+.agent-msg{font-size:9px;color:var(--muted);font-style:italic;min-height:14px}
+.activity-card{grid-column:1/-1}
+#activity-feed{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;max-height:200px}
+#activity-feed::-webkit-scrollbar{width:3px}
+#activity-feed::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
+.feed-entry{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:5px;background:var(--s1);border:1px solid var(--b1);animation:fIn 0.2s ease;font-size:11px}
+@keyframes fIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.feed-t{color:var(--muted);font-size:9px;flex-shrink:0}
+.feed-a{font-weight:700;flex-shrink:0}
+.feed-m{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-card{grid-column:span 2}
+#task-board{display:flex;gap:8px;flex:1;overflow-x:auto}
+.task-col{flex:1;min-width:110px;display:flex;flex-direction:column;gap:5px}
+.task-col-title{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding-bottom:5px;border-bottom:1px solid var(--b1)}
+.task-item{padding:7px 9px;border-radius:5px;background:var(--s1);border:1px solid var(--b1);font-size:10px;line-height:1.4}
+.empty-col{font-size:10px;color:var(--muted);font-style:italic}
 </style>
 </head>
 <body>
 <div class="dash">
   <div class="dash-header">
-    <div class="dash-title">&#9632; Kal-AI Dashboard</div>
-    <div style="display:flex;gap:16px;align-items:center;">
-      <div class="counters" id="globalCounters">
+    <div class="dash-title">&#9724; KAL-AI DASHBOARD</div>
+    <div style="display:flex;gap:16px;align-items:center">
+      <div class="counters">
         <div class="counter-box"><div class="counter-val" id="totalTasks">0</div><div class="counter-lbl">Tasks</div></div>
         <div class="counter-box"><div class="counter-val" id="totalActions">0</div><div class="counter-lbl">Actions</div></div>
-        <div class="counter-box"><div class="counter-val ok" id="successRate" style="color:var(--ok)">-</div><div class="counter-lbl">Success</div></div>
+        <div class="counter-box"><div class="counter-val" id="successRate" style="color:var(--ok)">&#8212;</div><div class="counter-lbl">Success</div></div>
       </div>
-      <div class="dash-ws">
-        <div class="ws-dot" id="wsDot"></div>
-        <span id="wsLabel">disconnected</span>
-      </div>
-      <div class="dash-time" id="clock"></div>
+      <div class="dash-ws"><div class="ws-dot" id="wsDot"></div><span id="wsLabel">connecting</span></div>
+      <div style="font-size:11px;color:var(--muted)" id="clock"></div>
     </div>
   </div>
-
   <div class="dash-body">
-
-    <!-- ORCHESTRATOR CARD -->
-    <div class="card agent-card" style="--c:var(--c-orch)">
+    <div class="card agent-card" id="card-orchestrator" style="--c:var(--c-orch)">
       <div class="card-title">Orchestrator</div>
-      <div class="agent-name">
-        <span class="agent-emoji">🧠</span>
-        <span>MGR</span>
-        <div id="orch-badge" class="status-badge" style="--c:var(--c-orch);margin-left:auto">
-          <div class="status-dot-sm"></div><span>idle</span>
-        </div>
-      </div>
+      <div class="agent-name"><span class="agent-emoji">🧠</span><span>MGR</span><div class="status-badge" id="badge-orchestrator" style="--c:var(--c-orch)"><div class="sdot"></div><span id="bst-orchestrator">idle</span></div></div>
       <div class="agent-stats">
-        <div class="stat-box"><div class="stat-val" id="orch-tasks">0</div><div class="stat-lbl">Tasks</div></div>
-        <div class="stat-box"><div class="stat-val" id="orch-rate">-</div><div class="stat-lbl">Success</div></div>
+        <div class="stat-box"><div class="stat-val" id="tasks-orchestrator">0</div><div class="stat-lbl">Tasks</div></div>
+        <div class="stat-box"><div class="stat-val" id="rate-orchestrator">&#8212;</div><div class="stat-lbl">Success</div></div>
       </div>
-      <div class="agent-status-bar"><div class="agent-status-fill" id="orch-bar" style="width:0%;background:var(--c-orch)"></div></div>
-      <div style="font-size:10px;color:var(--muted);font-style:italic" id="orch-msg">Standing by</div>
+      <div class="agent-bar"><div class="agent-bar-fill" id="bar-orchestrator" style="width:0"></div></div>
+      <div class="agent-msg" id="msg-orchestrator">Standing by</div>
     </div>
-
-    <!-- CODER CARD -->
-    <div class="card agent-card" style="--c:var(--c-coder)">
+    <div class="card agent-card" id="card-coder" style="--c:var(--c-coder)">
       <div class="card-title">Coder</div>
-      <div class="agent-name">
-        <span class="agent-emoji">💻</span>
-        <span>DEV</span>
-        <div id="coder-badge" class="status-badge" style="--c:var(--c-coder);margin-left:auto">
-          <div class="status-dot-sm"></div><span>idle</span>
-        </div>
-      </div>
+      <div class="agent-name"><span class="agent-emoji">💻</span><span>DEV</span><div class="status-badge" id="badge-coder" style="--c:var(--c-coder)"><div class="sdot"></div><span id="bst-coder">idle</span></div></div>
       <div class="agent-stats">
-        <div class="stat-box"><div class="stat-val" id="coder-tasks">0</div><div class="stat-lbl">Tasks</div></div>
-        <div class="stat-box"><div class="stat-val" id="coder-actions">0</div><div class="stat-lbl">GitHub Ops</div></div>
+        <div class="stat-box"><div class="stat-val" id="tasks-coder">0</div><div class="stat-lbl">Tasks</div></div>
+        <div class="stat-box"><div class="stat-val" id="actions-coder">0</div><div class="stat-lbl">GitHub Ops</div></div>
       </div>
-      <div class="agent-status-bar"><div class="agent-status-fill" id="coder-bar" style="width:0%;background:var(--c-coder)"></div></div>
-      <div style="font-size:10px;color:var(--muted);font-style:italic" id="coder-msg">Standing by</div>
+      <div class="agent-bar"><div class="agent-bar-fill" id="bar-coder" style="width:0"></div></div>
+      <div class="agent-msg" id="msg-coder">Standing by</div>
     </div>
-
-    <!-- ANALYST CARD -->
-    <div class="card agent-card" style="--c:var(--c-analyst)">
+    <div class="card agent-card" id="card-analyst" style="--c:var(--c-analyst)">
       <div class="card-title">Analyst</div>
-      <div class="agent-name">
-        <span class="agent-emoji">🔍</span>
-        <span>ANL</span>
-        <div id="analyst-badge" class="status-badge" style="--c:var(--c-analyst);margin-left:auto">
-          <div class="status-dot-sm"></div><span>idle</span>
-        </div>
-      </div>
+      <div class="agent-name"><span class="agent-emoji">🔍</span><span>ANL</span><div class="status-badge" id="badge-analyst" style="--c:var(--c-analyst)"><div class="sdot"></div><span id="bst-analyst">idle</span></div></div>
       <div class="agent-stats">
-        <div class="stat-box"><div class="stat-val" id="analyst-tasks">0</div><div class="stat-lbl">Tasks</div></div>
-        <div class="stat-box"><div class="stat-val" id="analyst-rate">-</div><div class="stat-lbl">Success</div></div>
+        <div class="stat-box"><div class="stat-val" id="tasks-analyst">0</div><div class="stat-lbl">Tasks</div></div>
+        <div class="stat-box"><div class="stat-val" id="rate-analyst">&#8212;</div><div class="stat-lbl">Success</div></div>
       </div>
-      <div class="agent-status-bar"><div class="agent-status-fill" id="analyst-bar" style="width:0%;background:var(--c-analyst)"></div></div>
-      <div style="font-size:10px;color:var(--muted);font-style:italic" id="analyst-msg">Standing by</div>
+      <div class="agent-bar"><div class="agent-bar-fill" id="bar-analyst" style="width:0"></div></div>
+      <div class="agent-msg" id="msg-analyst">Standing by</div>
     </div>
-
-    <!-- TASK BOARD -->
     <div class="card task-card">
-      <div class="card-title">Recent Tasks</div>
+      <div class="card-title">Task Board</div>
       <div id="task-board">
-        <div class="task-col">
-          <div class="task-col-title">🟡 Running</div>
-          <div id="col-running"><div class="empty-col">None active</div></div>
-        </div>
-        <div class="task-col">
-          <div class="task-col-title">🟢 Done</div>
-          <div id="col-done"><div class="empty-col">No history</div></div>
-        </div>
-        <div class="task-col">
-          <div class="task-col-title">🔴 Errors</div>
-          <div id="col-errors"><div class="empty-col">No errors</div></div>
-        </div>
+        <div class="task-col"><div class="task-col-title">🟡 Running</div><div id="col-running"><div class="empty-col">None</div></div></div>
+        <div class="task-col"><div class="task-col-title">🟢 Done</div><div id="col-done"><div class="empty-col">No history</div></div></div>
+        <div class="task-col"><div class="task-col-title">🔴 Errors</div><div id="col-errors"><div class="empty-col">None</div></div></div>
       </div>
     </div>
-
-    <!-- ACTIVITY FEED -->
     <div class="card activity-card">
-      <div class="card-title">Live Activity Feed</div>
-      <div id="activity-feed"><div style="color:var(--muted);font-size:11px;padding:8px">Waiting for activity…</div></div>
+      <div class="card-title">Live Activity</div>
+      <div id="activity-feed"><div style="color:var(--muted);font-size:11px;padding:6px">Waiting for activity…</div></div>
     </div>
-
   </div>
 </div>
-
 <script>
 'use strict';
+setInterval(()=>document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}),1000);
+document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-// Clock
-function updateClock(){
-  document.getElementById('clock').textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-}
-setInterval(updateClock,1000);updateClock();
-
-// State
-const agentStats={
-  orchestrator:{tasks:0,ok:0,total:0,status:'idle',msg:''},
-  coder:{tasks:0,ok:0,total:0,actions:0,status:'idle',msg:''},
-  analyst:{tasks:0,ok:0,total:0,status:'idle',msg:''},
+const stats={
+  orchestrator:{tasks:0,done:0,status:'idle',msg:''},
+  coder:{tasks:0,done:0,status:'idle',msg:'',actions:0},
+  analyst:{tasks:0,done:0,status:'idle',msg:''},
 };
-let totalTasks=0,totalActions=0,totalOk=0;
+let gTasks=0,gDone=0;
 
-// WebSocket
-let ws,wsReconnect;
+let ws,wsR;
 function connectWS(){
-  const host=window.location.host||'localhost:3000';
-  ws=new WebSocket(`ws://${host}/ws`);
-  ws.onopen=()=>{
-    document.getElementById('wsDot').classList.add('on');
-    document.getElementById('wsLabel').textContent='live';
-  };
-  ws.onclose=()=>{
-    document.getElementById('wsDot').classList.remove('on');
-    document.getElementById('wsLabel').textContent='reconnecting...';
-    wsReconnect=setTimeout(connectWS,2000);
-  };
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen=()=>{document.getElementById('wsDot').classList.add('on');document.getElementById('wsLabel').textContent='live';};
+  ws.onclose=()=>{document.getElementById('wsDot').classList.remove('on');document.getElementById('wsLabel').textContent='reconnecting';wsR=setTimeout(connectWS,2000);};
   ws.onmessage=e=>{
     try{
-      const msg=JSON.parse(e.data);
-      if(msg.type==='agent_status') handleAgentStatus(msg.agent,msg.status,msg.message||'');
+      const d=JSON.parse(e.data);
+      if(d.type==='agent_status')onStatus(d.agent,d.status,d.message||'');
     }catch(e){}
   };
 }
 connectWS();
 
-function handleAgentStatus(agent,status,msg){
-  const a=agentStats[agent];
-  if(!a) return;
-  a.status=status;a.msg=msg;
-  if(status==='working'||status==='coding'||status==='searching'||status==='thinking'){
-    a.tasks++;
-    totalTasks++;
-  }
-  if(status==='done'){
-    a.ok++;
-    totalOk++;
-  }
-  updateAgentCard(agent);
-  updateGlobalCounters();
-  if(msg||status!=='idle') addFeedEntry(agent,status,msg);
+function onStatus(agent,status,msg){
+  const s=stats[agent]; if(!s)return;
+  const wasActive=s.status!=='idle'&&s.status!=='done';
+  s.status=status;s.msg=msg;
+  if(['working','coding','searching','thinking'].includes(status)){s.tasks++;gTasks++;}
+  if(status==='done'){s.done++;gDone++;}
+  renderCard(agent);
+  renderGlobal();
+  if(status!=='idle')addFeed(agent,status,msg);
 }
 
-function updateAgentCard(agent){
-  const a=agentStats[agent];
-  const prefix=agent==='orchestrator'?'orch':agent==='coder'?'coder':'analyst';
-  const statusEl=document.getElementById(`${prefix}-badge`);
-  const barEl=document.getElementById(`${prefix}-bar`);
-  const msgEl=document.getElementById(`${prefix}-msg`);
-  const tasksEl=document.getElementById(`${prefix}-tasks`);
-
-  if(tasksEl) tasksEl.textContent=a.tasks;
-
-  if(statusEl){
-    const dot=statusEl.querySelector('.status-dot-sm');
-    const lbl=statusEl.querySelector('span:last-child');
-    if(lbl) lbl.textContent=a.status;
-    const active=a.status!=='idle'&&a.status!=='done';
-    if(dot&&active) dot.style.animation='pulse 0.8s ease-in-out infinite alternate';
-    else if(dot) dot.style.animation='';
-  }
-
-  if(barEl){
-    const pct=a.total>0?Math.round((a.ok/a.total)*100):a.status==='done'?100:a.status!=='idle'?50:0;
-    barEl.style.width=Math.max(0,pct)+'%';
-  }
-  if(msgEl) msgEl.textContent=a.msg||statusLabel(a.status);
-
-  // GitHub actions count for coder
-  const actionsEl=document.getElementById('coder-actions');
-  if(actionsEl) actionsEl.textContent=a.actions;
-
-  // Success rate
-  const rateEl=document.getElementById(`${prefix}-rate`);
-  if(rateEl&&a.tasks>0) rateEl.textContent=Math.round((a.ok/a.tasks)*100)+'%';
+function renderCard(agent){
+  const s=stats[agent];
+  const active=['working','coding','searching','thinking','walking','synthesizing'].includes(s.status);
+  const card=document.getElementById('card-'+agent);
+  const badge=document.getElementById('badge-'+agent);
+  const bst=document.getElementById('bst-'+agent);
+  const bar=document.getElementById('bar-'+agent);
+  const msg=document.getElementById('msg-'+agent);
+  const tasks=document.getElementById('tasks-'+agent);
+  const rate=document.getElementById('rate-'+agent);
+  const actions=document.getElementById('actions-'+agent);
+  if(card)card.classList.toggle('active',active);
+  if(badge)badge.classList.toggle('active',active);
+  if(bst)bst.textContent=s.status;
+  if(tasks)tasks.textContent=s.tasks;
+  if(rate&&s.tasks>0)rate.textContent=Math.round((s.done/s.tasks)*100)+'%';
+  if(actions)actions.textContent=s.actions;
+  if(bar)bar.style.width=(s.tasks>0?Math.round((s.done/s.tasks)*100):active?50:0)+'%';
+  if(msg)msg.textContent=s.msg||statusLabel(s.status);
 }
 
 function statusLabel(s){
-  return{idle:'Standing by',thinking:'Analyzing...',working:'On task',coding:'Coding...',searching:'Researching...',done:'Completed',walking:'Moving to desk',synthesizing:'Synthesizing...'}[s]||s;
+  return{idle:'Standing by',thinking:'Analyzing...',working:'On task',coding:'Writing code...',searching:'Researching...',done:'Done',walking:'Moving...',synthesizing:'Synthesizing...'}[s]||s;
 }
 
-function updateGlobalCounters(){
-  document.getElementById('totalTasks').textContent = totalTasks;
-  document.getElementById('totalActions').textContent = totalActions;
-  const pct = totalTasks > 0 ? Math.round((totalOk / totalTasks) * 100) + '%' : '\u2014';
-  document.getElementById('successRate').textContent = pct;
+function renderGlobal(){
+  document.getElementById('totalTasks').textContent=gTasks;
+  document.getElementById('successRate').textContent=gTasks>0?Math.round((gDone/gTasks)*100)+'%':'\u2014';
 }
 
-// Activity feed
 const feedEl=document.getElementById('activity-feed');
-const feedEntries=[];
-function addFeedEntry(agent,status,msg){
-  if(feedEntries.length===0)feedEl.innerHTML='';
-  const now=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+let feedInit=false;
+function addFeed(agent,status,msg){
+  if(!feedInit){feedEl.innerHTML='';feedInit=true;}
   const colors={orchestrator:'#6366f1',coder:'#10b981',analyst:'#f59e0b'};
-  const emojis={orchestrator:'\u{1F9E0}',coder:'\u{1F4BB}',analyst:'\u{1F50D}'};
-  const color=colors[agent]||'#6366f1';
-  const emoji=emojis[agent]||'\u25a0';
-
-  const entry=document.createElement('div');
-  entry.className='feed-entry';
-  entry.innerHTML=`
-    <span class="feed-time">${now}</span>
-    <span class="feed-agent" style="color:${color}">${emoji} ${agent}</span>
-    <div style="flex:1">
-      <div class="feed-action">${esc(status)}${msg?' \u2014 <span style="color:var(--tx);">'+esc(msg.slice(0,60))+'</span>':''}</div>
-    </div>
-  `;
-  feedEl.insertBefore(entry,feedEl.firstChild);
-  feedEntries.push(entry);
-  if(feedEntries.length>50){
-    const old=feedEntries.shift();
-    if(old.parentNode)old.parentNode.removeChild(old);
-  }
+  const labels={orchestrator:'MGR',coder:'DEV',analyst:'ANL'};
+  const now=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const e=document.createElement('div');
+  e.className='feed-entry';
+  e.innerHTML=`<span class="feed-t">${now}</span><span class="feed-a" style="color:${colors[agent]||'#6366f1'}">${labels[agent]||agent}</span><span class="feed-m">${esc(status)}${msg?' \u2014 '+esc(msg.slice(0,50)):''}</span>`;
+  feedEl.insertBefore(e,feedEl.firstChild);
+  while(feedEl.children.length>40)feedEl.removeChild(feedEl.lastChild);
 }
 
-// Load audit data periodically
-async function loadAuditData(){
+async function loadData(){
   try{
-    const res=await fetch('/audit?limit=100');
-    const rows=await res.json();
-
-    // Count per agent
-    const counts={orchestrator:{ok:0,err:0,total:0},coder:{ok:0,err:0,total:0,actions:0},analyst:{ok:0,err:0,total:0}};
-    rows.forEach(r=>{
-      const c=counts[r.agent_id];
-      if(!c) return;
-      c.total++;
-      totalActions++;
-      if(r.status==='ok') c.ok++;
-      else if(r.status==='error') c.err++;
-      if(r.agent_id==='coder') c.actions++;
-    });
-
-    // Update coder actions
-    agentStats.coder.actions=counts.coder.actions;
-    const actEl=document.getElementById('coder-actions');
-    if(actEl) actEl.textContent=counts.coder.actions;
-    document.getElementById('totalActions').textContent=rows.length;
-
-    // Task board from telemetry
-    const tRes=await fetch('/telemetry');
-    const tRows=await tRes.json();
-    updateTaskBoard(tRows);
-
+    const[auditRes,telRes]=await Promise.all([fetch('/audit?limit=200'),fetch('/telemetry')]);
+    const[audit,tel]=await Promise.all([auditRes.json(),telRes.json()]);
+    // Count actions from audit
+    let totalAudit=0;
+    const coderActions=audit.filter(r=>r.agent_id==='coder').length;
+    stats.coder.actions=coderActions;
+    document.getElementById('actions-coder').textContent=coderActions;
+    document.getElementById('totalActions').textContent=audit.length;
+    // Task board
+    const running=tel.filter(t=>t.status==='running');
+    const done=tel.filter(t=>t.status==='done').slice(0,6);
+    const errors=tel.filter(t=>t.status==='error').slice(0,4);
+    const colors={orchestrator:'var(--c-orch)',coder:'var(--c-coder)',analyst:'var(--c-analyst)'};
+    function taskCard(t){
+      const age=Math.round((Date.now()-t.created_at)/1000);
+      const ageStr=age<60?age+'s':Math.round(age/60)+'m ago';
+      return `<div class="task-item"><div style="font-size:9px;font-weight:700;color:${colors[t.agent_id]||'var(--ac)'}">${t.agent_id.toUpperCase()}</div><div style="font-size:9px;color:var(--muted);margin-top:1px">${t.project_name||t.task_id.slice(0,8)}</div><div style="font-size:9px;color:var(--muted);margin-top:2px">${ageStr}</div></div>`;
+    }
+    document.getElementById('col-running').innerHTML=running.length?running.map(taskCard).join(''):'<div class="empty-col">None</div>';
+    document.getElementById('col-done').innerHTML=done.length?done.map(taskCard).join(''):'<div class="empty-col">No history</div>';
+    document.getElementById('col-errors').innerHTML=errors.length?errors.map(taskCard).join(''):'<div class="empty-col">None</div>';
   }catch(e){}
 }
 
-function updateTaskBoard(tasks){
-  const running=tasks.filter(t=>t.status==='running');
-  const done=tasks.filter(t=>t.status==='done').slice(0,6);
-  const errors=tasks.filter(t=>t.status==='error').slice(0,4);
-
-  const colRunning=document.getElementById('col-running');
-  const colDone=document.getElementById('col-done');
-  const colErrors=document.getElementById('col-errors');
-
-  colRunning.innerHTML=running.length?running.map(t=>taskCard(t,'running')).join(''):noTasks('None active');
-  colDone.innerHTML=done.length?done.map(t=>taskCard(t,'done')).join(''):noTasks('No history');
-  colErrors.innerHTML=errors.length?errors.map(t=>taskCard(t,'error')).join(''):noTasks('No errors');
-}
-
-function taskCard(t,status){
-  const colors={orchestrator:'var(--c-orch)',coder:'var(--c-coder)',analyst:'var(--c-analyst)'};
-  const c=colors[t.agent_id]||'var(--ac)';
-  const age=Math.round((Date.now()-t.created_at)/1000);
-  const ageStr=age<60?age+'s':Math.round(age/60)+'m ago';
-  return `<div class="task-item">
-    <div style="font-size:10px;font-weight:600;color:${c}">${t.agent_id.toUpperCase()}</div>
-    <div style="font-size:10px;color:var(--muted);margin-top:2px">${t.project_name||t.task_id.slice(0,8)}</div>
-    <div class="task-item-agent">${ageStr} · ${t.interaction_count} interactions</div>
-  </div>`;
-}
-function noTasks(msg){return `<div class="empty-col">${msg}</div>`;}
-
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// Initial load and periodic refresh
-loadAuditData();
-setInterval(loadAuditData,5000);
+loadData();
+setInterval(loadData,5000);
 </script>
 </body>
 </html>
