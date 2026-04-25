@@ -21,6 +21,15 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
 GITHUB_USER  = "kale87"
 
+# Words that should never be treated as repo names
+EXCLUDED_WORDS = {
+    'github', 'my', 'all', 'the', 'a', 'an', 'repo', 'repos', 'repository',
+    'repositories', 'file', 'files', 'folder', 'branch', 'branches', 'code',
+    'list', 'show', 'get', 'read', 'open', 'check', 'look', 'find', 'what',
+    'is', 'are', 'in', 'at', 'of', 'for', 'to', 'do', 'i', 'me', 'please',
+    'can', 'you', 'could', 'would', 'main', 'master', 'latest', 'new',
+}
+
 async def gh(method: str, endpoint: str, body: dict = None) -> dict:
     headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "User-Agent": "kal-ai/1.0",
                "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
@@ -31,56 +40,62 @@ async def gh(method: str, endpoint: str, body: dict = None) -> dict:
         if resp.status_code >= 400: raise Exception(data.get("message", f"GitHub error {resp.status_code}"))
         return data
 
-# ---------------------------------------------------------------------------
-# GitHub intent detection — pure Python, no model involved
-# ---------------------------------------------------------------------------
-GITHUB_TRIGGER = re.compile(
-    r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pull.?request|\bpr\b|merge|'
-    r'file|files|folder|github|readme|clone|fork)\b',
-    re.IGNORECASE
-)
+def extract_repo(message: str):
+    """Extract a valid repo name from a message, excluding common words."""
+    msg = message.lower()
+
+    # Explicit owner/repo format: kale87/something
+    m = re.search(r'kale87/([\w.-]+)', message)
+    if m: return m.group(1)
+
+    # "X repo" or "repo X" patterns — filter out excluded words
+    for pattern in [
+        r'(?:in|my|the|for|of)\s+([\w.-]+)\s+repo',
+        r'([\w.-]+)\s+repo(?:sitory)?',
+        r'repo(?:sitory)?\s+(?:called\s+|named\s+)?([\w.-]+)',
+    ]:
+        m = re.search(pattern, msg)
+        if m:
+            candidate = m.group(1).lower()
+            if candidate not in EXCLUDED_WORDS and len(candidate) > 1:
+                return candidate
+    return None
 
 def parse_github_intent(message: str):
-    """
-    Returns (intent, params) or (None, None).
-    Detects GitHub operations from natural language.
-    """
+    """Returns (intent, params) or (None, None)."""
     msg = message.lower().strip()
 
-    # Must mention a GitHub concept to be a GitHub task
-    if not GITHUB_TRIGGER.search(msg):
+    # Must mention a GitHub concept
+    if not re.search(r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme)\b', msg, re.I):
         return None, None
 
-    # Extract repo name
-    repo_match = (
-        re.search(r'kale87/([\w.-]+)', message) or
-        re.search(r'(?:in|my|the|for|of)\s+["\']?([\w.-]+)["\']?\s+repo', msg) or
-        re.search(r'repo(?:sitory)?\s+["\']?([\w.-]+)["\']?', msg) or
-        re.search(r'["\']([\w.-]+)["\']\s+repo', msg)
-    )
-    repo = repo_match.group(1) if repo_match else None
+    repo = extract_repo(message)
 
-    # Extract file path (e.g. README.md, src/App.js)
-    file_match = re.search(r'["\']?([\w./-]+\.[\w]{1,6})["\']?', msg)
+    # File path (e.g. README.md, src/App.js)
+    file_match = re.search(r'\b([\w/-]+\.[\w]{1,6})\b', msg)
     file_path = file_match.group(1) if file_match else None
 
-    # Extract branch name
-    branch_match = re.search(r'branch\s+["\']?([\w./-]+)["\']?', msg)
-    branch = branch_match.group(1) if branch_match else None
+    # Branch name
+    branch_match = re.search(r'branch\s+([\w./-]+)', msg)
+    branch = branch_match.group(1) if branch_match else ''
 
-    # LIST REPOS — "list repos", "show my repos", "what repos do I have"
-    if re.search(r'(list|show|get|what).{0,25}repos?', msg) and not repo:
+    # LIST REPOS — no specific repo mentioned
+    if not repo and re.search(r'(list|show|get|what).{0,30}repos?', msg):
         return 'list_repos', {}
 
-    # LIST FILES — "files in X repo", "show X repo", "browse X"
+    # All repos / my repos without specific name
+    if not repo and 'repo' in msg:
+        return 'list_repos', {}
+
+    # LIST FILES
     if repo and re.search(r'(list|show|files?|contents?|inside|browse|explore|what.{0,10}in)', msg):
         path_match = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir)', msg)
-        path = path_match.group(1) if path_match else ""
-        return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': path, 'branch': branch or ''}
+        path = path_match.group(1) if path_match else ''
+        return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': path, 'branch': branch}
 
-    # READ FILE — "read README.md in X"
-    if file_path and repo:
-        return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch or ''}
+    # READ FILE
+    if repo and file_path:
+        return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch}
 
     # LIST BRANCHES
     if repo and re.search(r'branch(es)?', msg):
@@ -90,13 +105,9 @@ def parse_github_intent(message: str):
     if repo and re.search(r'(pull.?request|\bpr\b)', msg):
         return 'list_prs', {'owner': GITHUB_USER, 'repo': repo, 'state': 'open'}
 
-    # Repo mentioned but no specific intent — show files
+    # Repo mentioned — default to list files
     if repo:
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': '', 'branch': ''}
-
-    # GitHub mentioned but no repo — list repos
-    if re.search(r'repos?|repositor', msg):
-        return 'list_repos', {}
 
     return None, None
 
@@ -121,12 +132,11 @@ async def execute_intent(intent: str, params: dict) -> str:
             if isinstance(data, list):
                 display_path = f"{repo}/{path}" if path else repo
                 lines = [f"**Files in `{display_path}`:**"]
-                dirs  = [f for f in data if f['type'] == 'dir']
-                files = [f for f in data if f['type'] != 'dir']
-                for f in sorted(dirs,  key=lambda x: x['name']): lines.append(f"- \U0001f4c1 `{f['name']}/`")
-                for f in sorted(files, key=lambda x: x['name']): lines.append(f"- \U0001f4c4 `{f['name']}`")
+                for f in sorted(data, key=lambda x: (x['type'] != 'dir', x['name'])):
+                    icon = "\U0001f4c1" if f['type'] == 'dir' else "\U0001f4c4"
+                    lines.append(f"- {icon} `{f['name']}`")
                 return "\n".join(lines)
-            return f"Not a directory."
+            return "Not a directory."
 
         elif intent == 'read_file':
             owner, repo, path = params['owner'], params['repo'], params['path']
@@ -291,7 +301,7 @@ async def chat(request: Request):
         history.append({"role":"user","content":message,"agent":"user"})
         chat_msgs = [{"role":m["role"],"content":m["content"]} for m in history if m["role"] in ("user","assistant")]
 
-        # FAST PATH: GitHub intent detected — execute directly, no model
+        # FAST PATH: GitHub intent — no model involved
         intent, params = parse_github_intent(message)
         if intent:
             yield sse({"type":"status","agent":"coder","status":"working"})
