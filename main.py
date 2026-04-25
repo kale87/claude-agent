@@ -222,8 +222,15 @@ NEVER invent GitHub data. Only report what specialists return.""",
         "emoji": "\U0001f4bb",
         "color": "#10b981",
         "desk": "left",
-        "system": "You are the Coder agent. You write clean code, fix bugs, and handle GitHub operations. Always use code blocks. Be precise.",
-    },
+        "system": f"""You are the Coder agent. You write clean code, fix bugs, and handle GitHub operations.
+Always use code blocks. Be precise.
+CRITICAL INSTRUCTION FOR GITHUB: 
+To autonomously push code directly to GitHub, you MUST wrap your final code EXACTLY like this:
+<commit repo="YOUR_REPO_NAME" path="YOUR_FILE_PATH" message="YOUR_COMMIT_MESSAGE">
+YOUR_CODE_CONTENT
+</commit>
+The default owner is {GITHUB_USER}. Do NOT ask the user to commit it manually, do it yourself using the tag.""",
+    },,
     "analyst": {
         "name": "Analyst",
         "emoji": "\U0001f50d",
