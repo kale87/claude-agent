@@ -28,6 +28,8 @@ EXCLUDED_WORDS = {
     'list', 'show', 'get', 'read', 'open', 'check', 'look', 'find', 'what',
     'is', 'are', 'in', 'at', 'of', 'for', 'to', 'do', 'i', 'me', 'please',
     'can', 'you', 'could', 'would', 'main', 'master', 'latest', 'new',
+    'create', 'make', 'add', 'push', 'pull', 'commit', 'merge', 'into',
+    'from', 'this', 'that', 'with', 'and', 'or', 'on', 'it', 'its',
 }
 
 async def gh(method: str, endpoint: str, body: dict = None) -> dict:
@@ -41,14 +43,12 @@ async def gh(method: str, endpoint: str, body: dict = None) -> dict:
         return data
 
 def extract_repo(message: str):
-    """Extract a valid repo name from a message, excluding common words."""
+    """Extract a valid repo name from a message."""
     msg = message.lower()
-
-    # Explicit owner/repo format: kale87/something
+    # Explicit owner/repo
     m = re.search(r'kale87/([\w.-]+)', message)
     if m: return m.group(1)
-
-    # "X repo" or "repo X" patterns — filter out excluded words
+    # Patterns like "in X repo", "X repo", "repo X"
     for pattern in [
         r'(?:in|my|the|for|of)\s+([\w.-]+)\s+repo',
         r'([\w.-]+)\s+repo(?:sitory)?',
@@ -61,40 +61,102 @@ def extract_repo(message: str):
                 return candidate
     return None
 
+def extract_branch_name(message: str, exclude: list = []):
+    """Extract a branch name from a message."""
+    msg = message.lower()
+    # Patterns: "branch X", "branch called X", "X branch"
+    for pattern in [
+        r'branch\s+(?:called\s+|named\s+)?["\']?([\w./-]+)["\']?',
+        r'["\']([\w./-]+)["\']\s+branch',
+    ]:
+        m = re.search(pattern, msg)
+        if m:
+            candidate = m.group(1)
+            if candidate not in EXCLUDED_WORDS and candidate not in exclude:
+                return candidate
+    return None
+
+# ---------------------------------------------------------------------------
+# Intent parser
+# ---------------------------------------------------------------------------
 def parse_github_intent(message: str):
-    """Returns (intent, params) or (None, None)."""
     msg = message.lower().strip()
 
     # Must mention a GitHub concept
-    if not re.search(r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme)\b', msg, re.I):
+    if not re.search(r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme|pull.?request)\b', msg, re.I):
         return None, None
 
-    repo = extract_repo(message)
-
-    # File path (e.g. README.md, src/App.js)
+    repo  = extract_repo(message)
+    
+    # File path
     file_match = re.search(r'\b([\w/-]+\.[\w]{1,6})\b', msg)
-    file_path = file_match.group(1) if file_match else None
+    file_path  = file_match.group(1) if file_match else None
 
-    # Branch name
-    branch_match = re.search(r'branch\s+([\w./-]+)', msg)
-    branch = branch_match.group(1) if branch_match else ''
+    # ----------------------------------------------------------------
+    # WRITE INTENTS
+    # ----------------------------------------------------------------
 
-    # LIST REPOS — no specific repo mentioned
+    # CREATE BRANCH — "create branch X in repo Y", "make branch X"
+    if re.search(r'(create|make|new)\s+(?:a\s+)?branch', msg):
+        branch = extract_branch_name(message)
+        from_branch_m = re.search(r'from\s+([\w./-]+)', msg)
+        from_branch = from_branch_m.group(1) if from_branch_m else 'main'
+        if repo and branch:
+            return 'create_branch', {'owner': GITHUB_USER, 'repo': repo, 'branch': branch, 'from_branch': from_branch}
+        return None, None
+
+    # MERGE BRANCH — "merge X into Y in repo Z"
+    if re.search(r'merge\s+(?:branch\s+)?', msg) and 'pull request' not in msg and 'pr' not in msg.split():
+        head_m = re.search(r'merge\s+(?:branch\s+)?["\']?([\w./-]+)["\']?\s+into', msg)
+        base_m = re.search(r'into\s+["\']?([\w./-]+)["\']?', msg)
+        head = head_m.group(1) if head_m else None
+        base = base_m.group(1) if base_m else 'main'
+        if repo and head:
+            return 'merge_branch', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base}
+        return None, None
+
+    # CREATE PR — "create/open PR from X to Y in repo Z"
+    if re.search(r'(create|open|make)\s+(?:a\s+)?(?:pull.?request|pr)', msg):
+        head_m = re.search(r'from\s+["\']?([\w./-]+)["\']?', msg)
+        base_m = re.search(r'(?:to|into)\s+["\']?([\w./-]+)["\']?', msg)
+        title_m = re.search(r'(?:title|called|named)\s+["\']?(.+?)["\']?(?:\s+in|\s+for|$)', msg)
+        head  = head_m.group(1) if head_m else None
+        base  = base_m.group(1) if base_m else 'main'
+        title = title_m.group(1) if title_m else f'PR from {head} into {base}'
+        if repo and head:
+            return 'create_pr', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, 'title': title}
+        return None, None
+
+    # MERGE PR — "merge PR #5 in repo X"
+    if re.search(r'merge\s+(?:pull.?request|pr)', msg):
+        num_m = re.search(r'#?(\d+)', msg)
+        number = int(num_m.group(1)) if num_m else None
+        if repo and number:
+            return 'merge_pr', {'owner': GITHUB_USER, 'repo': repo, 'number': number}
+        return None, None
+
+    # ----------------------------------------------------------------
+    # READ INTENTS
+    # ----------------------------------------------------------------
+
+    # LIST REPOS
     if not repo and re.search(r'(list|show|get|what).{0,30}repos?', msg):
         return 'list_repos', {}
-
-    # All repos / my repos without specific name
-    if not repo and 'repo' in msg:
+    if not repo and re.search(r'\brepos?\b', msg):
         return 'list_repos', {}
 
     # LIST FILES
     if repo and re.search(r'(list|show|files?|contents?|inside|browse|explore|what.{0,10}in)', msg):
         path_match = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir)', msg)
         path = path_match.group(1) if path_match else ''
+        branch_m = re.search(r'(?:on\s+)?branch\s+([\w./-]+)', msg)
+        branch = branch_m.group(1) if branch_m else ''
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': path, 'branch': branch}
 
     # READ FILE
     if repo and file_path:
+        branch_m = re.search(r'(?:on\s+)?branch\s+([\w./-]+)', msg)
+        branch = branch_m.group(1) if branch_m else ''
         return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch}
 
     # LIST BRANCHES
@@ -111,6 +173,9 @@ def parse_github_intent(message: str):
 
     return None, None
 
+# ---------------------------------------------------------------------------
+# Intent executor
+# ---------------------------------------------------------------------------
 async def execute_intent(intent: str, params: dict) -> str:
     try:
         if intent == 'list_repos':
@@ -124,14 +189,14 @@ async def execute_intent(intent: str, params: dict) -> str:
 
         elif intent == 'list_files':
             owner, repo = params['owner'], params['repo']
-            path = params.get('path', '').lstrip('/')
+            path   = params.get('path', '').lstrip('/')
             branch = params.get('branch', '')
             ep = f"/repos/{owner}/{repo}/contents/{path}"
             if branch: ep += f"?ref={branch}"
             data = await gh("GET", ep)
             if isinstance(data, list):
-                display_path = f"{repo}/{path}" if path else repo
-                lines = [f"**Files in `{display_path}`:**"]
+                display = f"{repo}/{path}" if path else repo
+                lines = [f"**Files in `{display}`:**"]
                 for f in sorted(data, key=lambda x: (x['type'] != 'dir', x['name'])):
                     icon = "\U0001f4c1" if f['type'] == 'dir' else "\U0001f4c4"
                     lines.append(f"- {icon} `{f['name']}`")
@@ -160,16 +225,72 @@ async def execute_intent(intent: str, params: dict) -> str:
             owner, repo = params['owner'], params['repo']
             state = params.get('state', 'open')
             data = await gh("GET", f"/repos/{owner}/{repo}/pulls?state={state}&per_page=20")
-            lines = [f"**Open PRs in `{repo}`:**"]
-            if not data: lines.append("No open PRs.")
+            lines = [f"**{'Open' if state=='open' else state.title()} PRs in `{repo}`:**"]
+            if not data: lines.append("No PRs found.")
             for p in data: lines.append(f"- #{p['number']} **{p['title']}** (`{p['head']['ref']}` \u2192 `{p['base']['ref']}`)") 
             return "\n".join(lines)
 
+        elif intent == 'create_branch':
+            owner, repo = params['owner'], params['repo']
+            branch      = params['branch']
+            from_branch = params.get('from_branch', 'main')
+            ref_data = await gh("GET", f"/repos/{owner}/{repo}/git/ref/heads/{from_branch}")
+            sha = ref_data["object"]["sha"]
+            await gh("POST", f"/repos/{owner}/{repo}/git/refs",
+                     {"ref": f"refs/heads/{branch}", "sha": sha})
+            return f"\u2705 Branch `{branch}` created from `{from_branch}` in `{repo}`"
+
+        elif intent == 'merge_branch':
+            owner, repo = params['owner'], params['repo']
+            head, base  = params['head'], params.get('base', 'main')
+            result = await gh("POST", f"/repos/{owner}/{repo}/merges",
+                              {"base": base, "head": head,
+                               "commit_message": f"Merge {head} into {base}"})
+            sha = result.get('sha', '')[:7]
+            return f"\u2705 Merged `{head}` into `{base}` in `{repo}` (commit `{sha}`)"
+
+        elif intent == 'create_pr':
+            owner, repo = params['owner'], params['repo']
+            result = await gh("POST", f"/repos/{owner}/{repo}/pulls",
+                              {"title": params['title'], "head": params['head'],
+                               "base": params.get('base', 'main'), "body": params.get('body', '')})
+            return f"\u2705 PR #{result['number']} created: [{result['title']}]({result['html_url']})"
+
+        elif intent == 'merge_pr':
+            owner, repo, number = params['owner'], params['repo'], params['number']
+            result = await gh("PUT", f"/repos/{owner}/{repo}/pulls/{number}/merge",
+                              {"merge_method": "squash"})
+            sha = result.get('sha', '')[:7]
+            return f"\u2705 PR #{number} merged (commit `{sha}`)"
+
+        elif intent == 'commit_file':
+            owner, repo  = params['owner'], params['repo']
+            path, content = params['path'], params['content']
+            message = params.get('message', f'Update {path}')
+            branch  = params.get('branch', 'main')
+            body: dict = {
+                "message": message,
+                "content": base64.b64encode(content.encode()).decode(),
+                "branch":  branch,
+            }
+            try:
+                existing = await gh("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={branch}")
+                body["sha"] = existing["sha"]
+            except Exception:
+                pass
+            result = await gh("PUT", f"/repos/{owner}/{repo}/contents/{path}", body)
+            sha = result.get('commit', {}).get('sha', '')[:7]
+            return f"\u2705 Committed `{path}` to `{branch}` in `{repo}` (commit `{sha}`)"
+
         else:
             return f"Unknown intent: {intent}"
+
     except Exception as e:
         return f"\u274c Error: {str(e)}"
 
+# ---------------------------------------------------------------------------
+# Agents
+# ---------------------------------------------------------------------------
 AGENTS = {
     "manager": {"name":"Manager","emoji":"🎯","color":"#6366f1","system":"""You are the Manager agent of Kal-AI.\nFor simple questions, answer directly.\nFor complex tasks, delegate:\n<delegate agent=\"coder\">task</delegate>\n<delegate agent=\"researcher\">task</delegate>\n<delegate agent=\"writer\">task</delegate>\nNEVER invent information."""},
     "coder":      {"name":"Coder",     "emoji":"💻","color":"#10b981","system":"You are the Coder agent. Write clean code, fix bugs, and explain technical concepts clearly."},
@@ -178,6 +299,9 @@ AGENTS = {
 }
 AGENT_KEYS = list(AGENTS.keys())
 
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "sessions.db"
@@ -223,6 +347,9 @@ async def ollama_stream(system, messages) -> AsyncGenerator[str, None]:
                     if chunk: yield chunk
                 except: pass
 
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
 app = FastAPI(title="Kal-AI")
 
 @app.get("/health")
@@ -404,6 +531,11 @@ if __name__ == "__main__":
    Model:  {OLLAMA_MODEL}
    Ollama: {OLLAMA_HOST}
    GitHub: {'connected' if GITHUB_TOKEN else 'no token'}
+
+   Supported commands:
+   Read:  list repos, show files in X repo, read FILE in X repo, list branches in X repo
+   Write: create branch NAME in X repo, merge BRANCH into BRANCH in X repo,
+          create PR from BRANCH to BRANCH in X repo, merge PR #N in X repo
 
    Make sure Ollama is running: ollama serve
 """)
