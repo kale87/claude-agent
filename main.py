@@ -230,7 +230,7 @@ To autonomously push code directly to GitHub, you MUST wrap your final code EXAC
 YOUR_CODE_CONTENT
 </commit>
 The default owner is {GITHUB_USER}. Do NOT ask the user to commit it manually, do it yourself using the tag.""",
-    },,
+    },
     "analyst": {
         "name": "Analyst",
         "emoji": "\U0001f50d",
