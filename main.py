@@ -23,6 +23,13 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
 GITHUB_USER  = "kale87"
 
+# These verbs at the start of a message mean it's a creative/coding task,
+# NOT a raw GitHub lookup — must go to Orchestrator instead of fast path
+CREATIVE_VERBS = re.compile(
+    r'^(write|build|generate|create|make|implement|develop|code|draft|design|add|fix|update|refactor|improve|help me write|help me build|help me create)',
+    re.IGNORECASE
+)
+
 class WSManager:
     def __init__(self):
         self.connections: list[WebSocket] = []
@@ -154,9 +161,8 @@ FILE CONTENT HERE
 </commit>
 
 Example:
-<commit repo="kal-ai" path="src/utils.py" message="Add utility functions">
-def hello():
-    return 'world'
+<commit repo="kal-ai" path="hello.py" message="Add hello script">
+print('hello world')
 </commit>
 
 Always use <commit> when you write code that should be saved to a repo. Do NOT tell the user to commit manually.""",
@@ -180,7 +186,8 @@ EXCLUDED_WORDS = {
     'open','check','look','find','what','is','are','in','at','of','for','to','do',
     'i','me','please','can','you','could','would','main','master','latest','new',
     'create','make','add','push','pull','commit','merge','into','from','this',
-    'that','with','and','or','on','it','its',
+    'that','with','and','or','on','it','its','write','build','generate','script',
+    'function','class','module','implement','develop','fix','update','refactor',
 }
 
 async def gh(method: str, endpoint: str, body: dict = None) -> dict:
@@ -213,14 +220,27 @@ def extract_repo(message: str) -> Optional[str]:
     return None
 
 def parse_github_intent(message: str):
+    """
+    Returns (intent, params) for direct GitHub operations.
+    Returns (None, None) for anything that needs the LLM (writing code, questions, etc).
+    """
     msg = message.lower().strip()
+
+    # If message starts with a creative/coding verb, it's a task for the LLM — not a raw GitHub op
+    if CREATIVE_VERBS.match(msg):
+        return None, None
+
+    # Must mention a GitHub structural keyword
     if not re.search(r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme|pull.?request)\b', msg, re.I):
         return None, None
+
     repo = extract_repo(message)
     file_match = re.search(r'\b([\w/-]+\.[\w]{1,6})\b', msg)
     file_path = file_match.group(1) if file_match else None
     branch_m = re.search(r'(?:on\s+)?branch\s+([\w./-]+)', msg)
     branch = branch_m.group(1) if branch_m else ''
+
+    # --- Write intents (destructive / action) ---
     if re.search(r'(create|make|new)\s+(?:a\s+)?branch', msg):
         bm = re.search(r'branch\s+(?:called\s+|named\s+)?["\']?([\w./-]+)["\']?', msg)
         bn = bm.group(1) if bm else None
@@ -229,6 +249,7 @@ def parse_github_intent(message: str):
         if repo and bn and bn not in EXCLUDED_WORDS:
             return 'create_branch', {'owner': GITHUB_USER, 'repo': repo, 'branch': bn, 'from_branch': fb}
         return None, None
+
     if re.search(r'merge\s+(?:branch\s+)?', msg) and 'pull request' not in msg:
         hm = re.search(r'merge\s+(?:branch\s+)?["\']?([\w./-]+)["\']?\s+into', msg)
         bm = re.search(r'into\s+["\']?([\w./-]+)["\']?', msg)
@@ -237,6 +258,7 @@ def parse_github_intent(message: str):
         if repo and head:
             return 'merge_branch', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, '_confirm': True}
         return None, None
+
     if re.search(r'(create|open|make)\s+(?:a\s+)?(?:pull.?request|pr)', msg):
         hm = re.search(r'from\s+["\']?([\w./-]+)["\']?', msg)
         bm = re.search(r'(?:to|into)\s+["\']?([\w./-]+)["\']?', msg)
@@ -247,27 +269,33 @@ def parse_github_intent(message: str):
         if repo and head:
             return 'create_pr', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, 'title': title, '_confirm': True}
         return None, None
+
     if re.search(r'merge\s+(?:pull.?request|pr)', msg):
         nm = re.search(r'#?(\d+)', msg)
         number = int(nm.group(1)) if nm else None
         if repo and number:
             return 'merge_pr', {'owner': GITHUB_USER, 'repo': repo, 'number': number, '_confirm': True}
         return None, None
+
+    # --- Read intents ---
     if not repo and re.search(r'(list|show|get|what).{0,30}repos?', msg):
         return 'list_repos', {}
     if not repo and re.search(r'\brepos?\b', msg):
         return 'list_repos', {}
-    if repo and re.search(r'(list|show|files?|contents?|inside|browse|explore|what.{0,10}in)', msg):
+    if repo and re.search(r'\b(list|show|files?|contents?|inside|browse|explore)\b', msg):
         pm = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir)', msg)
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': pm.group(1) if pm else '', 'branch': branch}
-    if repo and file_path:
+    if repo and file_path and re.search(r'\b(read|show|open|cat|view|display)\b', msg):
         return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch}
-    if repo and re.search(r'branch(es)?', msg):
+    if repo and re.search(r'\bbranch(es)?\b', msg) and not re.search(r'(create|make|new)', msg):
         return 'list_branches', {'owner': GITHUB_USER, 'repo': repo}
-    if repo and re.search(r'(pull.?request|\bpr\b)', msg):
+    if repo and re.search(r'\b(pull.?request|\bpr\b)', msg) and not re.search(r'(create|open|make)', msg):
         return 'list_prs', {'owner': GITHUB_USER, 'repo': repo, 'state': 'open'}
-    if repo:
+    # Explicit "show/list files" with repo only
+    if repo and re.search(r'\b(show|list|browse|explore)\b', msg):
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': '', 'branch': ''}
+
+    # Don't fall through to list_files by default anymore — go to LLM
     return None, None
 
 async def execute_intent(intent: str, params: dict, task_id: str, needs_confirm: bool = False) -> str:
@@ -335,7 +363,7 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
         if not data:
             lines.append("No PRs found.")
         for pr in data:
-            lines.append(f"- #{pr['number']} **{pr['title']}** (`{pr['head']['ref']}` \u2192 `{pr['base']['ref']}`)") 
+            lines.append(f"- #{pr['number']} **{pr['title']}** (`{pr['head']['ref']}` \u2192 `{pr['base']['ref']}`)")
         return "\n".join(lines)
     elif intent == 'create_branch':
         ref_data = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/git/ref/heads/{p.get('from_branch', 'main')}")
@@ -375,9 +403,7 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
     return f"Unknown intent: {intent}"
 
 async def auto_commit_from_response(response: str, task_id: str) -> list:
-    """
-    Scan coder response for <commit> tags and push each file to GitHub automatically.
-    """
+    """Parse <commit> tags from coder response and push to GitHub."""
     pattern = re.compile(
         r'<commit\s+repo="([^"]+)"\s+path="([^"]+)"\s+message="([^"]+)"(?:\s+branch="([^"]+)")?>(.*?)</commit>',
         re.DOTALL
@@ -399,9 +425,6 @@ async def auto_commit_from_response(response: str, task_id: str) -> list:
             results.append(f"\u274c Commit failed for `{path}`: {str(e)}")
     return results
 
-# ---------------------------------------------------------------------------
-# Ollama
-# ---------------------------------------------------------------------------
 async def ollama_stream(system: str, messages: list) -> AsyncGenerator[str, None]:
     payload = {"model": OLLAMA_MODEL,
                "messages": [{"role": "system", "content": system}] + messages,
@@ -418,9 +441,6 @@ async def ollama_stream(system: str, messages: list) -> AsyncGenerator[str, None
                 except Exception:
                     pass
 
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
 app = FastAPI(title="Kal-AI")
 
 @app.websocket("/ws")
@@ -535,7 +555,7 @@ async def chat(request: Request):
         chat_msgs = [{"role": m["role"], "content": m["content"]}
                      for m in history if m["role"] in ("user", "assistant")]
 
-        # FAST PATH: direct GitHub intent
+        # FAST PATH: direct GitHub lookup/action only
         intent, params = parse_github_intent(message)
         if intent:
             await ws_manager.agent_event("coder", "walking", "Heading to GitHub...")
@@ -559,7 +579,7 @@ async def chat(request: Request):
                 yield sse({"type": "status", "agent": k, "status": "idle"})
             return
 
-        # NORMAL PATH: Orchestrator
+        # NORMAL PATH: Orchestrator + specialists
         await ws_manager.agent_event("orchestrator", "thinking", "Analyzing request...")
         yield sse({"type": "status", "agent": "orchestrator", "status": "thinking"})
         manager_response = ""
@@ -594,7 +614,7 @@ async def chat(request: Request):
                 result += chunk
                 yield sse({"type": "chunk", "agent": agent_key, "chunk": chunk})
 
-            # AUTO-COMMIT: parse <commit> tags from coder response and push to GitHub
+            # AUTO-COMMIT: scan for <commit> tags in coder output
             if agent_key == "coder":
                 await ws_manager.agent_event("coder", "coding", "Scanning for commits...")
                 commit_results = await auto_commit_from_response(result, task_id)
@@ -679,6 +699,6 @@ if __name__ == "__main__":
    WS    : ws://localhost:{PORT}/ws
    Tabs  : Chat | Agent Office | Dashboard | Audit Log
 
-   Make sure Ollama is running: ollama serve
+   ollama serve  (in another terminal)
 """)
     uvicorn.run("main:app", host="0.0.0.0", port=PORT, reload=True)
