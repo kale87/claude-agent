@@ -23,8 +23,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
 GITHUB_USER  = "kale87"
 
-# These verbs at the start of a message mean it's a creative/coding task,
-# NOT a raw GitHub lookup — must go to Orchestrator instead of fast path
 CREATIVE_VERBS = re.compile(
     r'^(write|build|generate|create|make|implement|develop|code|draft|design|add|fix|update|refactor|improve|help me write|help me build|help me create)',
     re.IGNORECASE
@@ -155,17 +153,17 @@ NEVER invent data. Only report what specialists return.""",
         "system": f"""You are the Coder agent. GitHub username: {GITHUB_USER}.
 Write clean, working code. Always use fenced code blocks.
 
-To commit code directly to GitHub, wrap your file content EXACTLY like this:
-<commit repo="REPO_NAME" path="FILE_PATH" message="COMMIT_MESSAGE" branch="main">
+To commit code to GitHub, use this tag. IMPORTANT: always use a feature branch, never 'main':
+<commit repo="REPO_NAME" path="FILE_PATH" message="COMMIT_MESSAGE" branch="feat/FEATURE_NAME">
 FILE CONTENT HERE
 </commit>
 
 Example:
-<commit repo="kal-ai" path="hello.py" message="Add hello script">
+<commit repo="kal-ai" path="hello.py" message="Add hello script" branch="feat/hello-script">
 print('hello world')
 </commit>
 
-Always use <commit> when you write code that should be saved to a repo. Do NOT tell the user to commit manually.""",
+The system will automatically commit to the branch and open a PR to main. Never use branch="main".""",
     },
     "analyst": {
         "name": "Analyst", "emoji": "\U0001f50d", "color": "#f59e0b",
@@ -220,27 +218,16 @@ def extract_repo(message: str) -> Optional[str]:
     return None
 
 def parse_github_intent(message: str):
-    """
-    Returns (intent, params) for direct GitHub operations.
-    Returns (None, None) for anything that needs the LLM (writing code, questions, etc).
-    """
     msg = message.lower().strip()
-
-    # If message starts with a creative/coding verb, it's a task for the LLM — not a raw GitHub op
     if CREATIVE_VERBS.match(msg):
         return None, None
-
-    # Must mention a GitHub structural keyword
     if not re.search(r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme|pull.?request)\b', msg, re.I):
         return None, None
-
     repo = extract_repo(message)
     file_match = re.search(r'\b([\w/-]+\.[\w]{1,6})\b', msg)
     file_path = file_match.group(1) if file_match else None
     branch_m = re.search(r'(?:on\s+)?branch\s+([\w./-]+)', msg)
     branch = branch_m.group(1) if branch_m else ''
-
-    # --- Write intents (destructive / action) ---
     if re.search(r'(create|make|new)\s+(?:a\s+)?branch', msg):
         bm = re.search(r'branch\s+(?:called\s+|named\s+)?["\']?([\w./-]+)["\']?', msg)
         bn = bm.group(1) if bm else None
@@ -249,7 +236,6 @@ def parse_github_intent(message: str):
         if repo and bn and bn not in EXCLUDED_WORDS:
             return 'create_branch', {'owner': GITHUB_USER, 'repo': repo, 'branch': bn, 'from_branch': fb}
         return None, None
-
     if re.search(r'merge\s+(?:branch\s+)?', msg) and 'pull request' not in msg:
         hm = re.search(r'merge\s+(?:branch\s+)?["\']?([\w./-]+)["\']?\s+into', msg)
         bm = re.search(r'into\s+["\']?([\w./-]+)["\']?', msg)
@@ -258,7 +244,6 @@ def parse_github_intent(message: str):
         if repo and head:
             return 'merge_branch', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, '_confirm': True}
         return None, None
-
     if re.search(r'(create|open|make)\s+(?:a\s+)?(?:pull.?request|pr)', msg):
         hm = re.search(r'from\s+["\']?([\w./-]+)["\']?', msg)
         bm = re.search(r'(?:to|into)\s+["\']?([\w./-]+)["\']?', msg)
@@ -269,15 +254,12 @@ def parse_github_intent(message: str):
         if repo and head:
             return 'create_pr', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, 'title': title, '_confirm': True}
         return None, None
-
     if re.search(r'merge\s+(?:pull.?request|pr)', msg):
         nm = re.search(r'#?(\d+)', msg)
         number = int(nm.group(1)) if nm else None
         if repo and number:
             return 'merge_pr', {'owner': GITHUB_USER, 'repo': repo, 'number': number, '_confirm': True}
         return None, None
-
-    # --- Read intents ---
     if not repo and re.search(r'(list|show|get|what).{0,30}repos?', msg):
         return 'list_repos', {}
     if not repo and re.search(r'\brepos?\b', msg):
@@ -291,11 +273,8 @@ def parse_github_intent(message: str):
         return 'list_branches', {'owner': GITHUB_USER, 'repo': repo}
     if repo and re.search(r'\b(pull.?request|\bpr\b)', msg) and not re.search(r'(create|open|make)', msg):
         return 'list_prs', {'owner': GITHUB_USER, 'repo': repo, 'state': 'open'}
-    # Explicit "show/list files" with repo only
     if repo and re.search(r'\b(show|list|browse|explore)\b', msg):
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': '', 'branch': ''}
-
-    # Don't fall through to list_files by default anymore — go to LLM
     return None, None
 
 async def execute_intent(intent: str, params: dict, task_id: str, needs_confirm: bool = False) -> str:
@@ -363,7 +342,7 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
         if not data:
             lines.append("No PRs found.")
         for pr in data:
-            lines.append(f"- #{pr['number']} **{pr['title']}** (`{pr['head']['ref']}` \u2192 `{pr['base']['ref']}`)")
+            lines.append(f"- #{pr['number']} **{pr['title']}** (`{pr['head']['ref']}` \u2192 `{pr['base']['ref']}`)") 
         return "\n".join(lines)
     elif intent == 'create_branch':
         ref_data = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/git/ref/heads/{p.get('from_branch', 'main')}")
@@ -386,24 +365,76 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
                           {"merge_method": "squash"})
         return f"\u2705 PR #{p['number']} merged (commit `{result.get('sha', '')[:7]}`)"
     elif intent == 'commit_file':
+        owner  = p['owner']
+        repo   = p['repo']
+        path   = p['path']
         branch = p.get('branch', 'main')
         body: dict = {
-            "message": p.get('message', f"Update {p['path']}"),
+            "message": p.get('message', f"Update {path}"),
             "content": base64.b64encode(p['content'].encode()).decode(),
-            "branch": branch,
+            "branch":  branch,
         }
         try:
-            existing = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/contents/{p['path']}?ref={branch}")
+            existing = await gh("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={branch}")
             body["sha"] = existing["sha"]
         except Exception:
             pass
-        result = await gh("PUT", f"/repos/{p['owner']}/{p['repo']}/contents/{p['path']}", body)
+        result = await gh("PUT", f"/repos/{owner}/{repo}/contents/{path}", body)
         sha = result.get('commit', {}).get('sha', '')[:7]
-        return f"\u2705 Committed `{p['path']}` to `{branch}` in `{p['repo']}` (commit `{sha}`)"
+        return f"\u2705 Committed `{path}` to `{branch}` in `{repo}` (commit `{sha}`)"
     return f"Unknown intent: {intent}"
 
+async def commit_via_pr(
+    owner: str, repo: str, path: str, content: str,
+    message: str, base_branch: str = "main"
+) -> str:
+    """
+    Commit a file via a feature branch + PR.
+    Used when direct commit to main is blocked by branch protection.
+    """
+    # Create a unique feature branch name from the file path
+    safe = re.sub(r'[^\w]', '-', path.split('/')[-1].split('.')[0])[:30]
+    ts   = datetime.utcnow().strftime('%H%M%S')
+    feature_branch = f"feat/{safe}-{ts}"
+
+    # Get SHA of base branch
+    ref_data = await gh("GET", f"/repos/{owner}/{repo}/git/ref/heads/{base_branch}")
+    sha = ref_data["object"]["sha"]
+
+    # Create the feature branch
+    await gh("POST", f"/repos/{owner}/{repo}/git/refs",
+             {"ref": f"refs/heads/{feature_branch}", "sha": sha})
+
+    # Commit the file onto the feature branch
+    file_body: dict = {
+        "message": message,
+        "content": base64.b64encode(content.encode()).decode(),
+        "branch": feature_branch,
+    }
+    try:
+        existing = await gh("GET", f"/repos/{owner}/{repo}/contents/{path}?ref={feature_branch}")
+        file_body["sha"] = existing["sha"]
+    except Exception:
+        pass
+    await gh("PUT", f"/repos/{owner}/{repo}/contents/{path}", file_body)
+
+    # Open a PR
+    pr = await gh("POST", f"/repos/{owner}/{repo}/pulls", {
+        "title": message,
+        "head":  feature_branch,
+        "base":  base_branch,
+        "body":  f"Automated PR by Kal-AI Coder agent.\n\n**File:** `{path}`\n**Branch:** `{feature_branch}`",
+    })
+    return (
+        f"\u2705 Created branch `{feature_branch}`, committed `{path}`, "
+        f"and opened PR #{pr['number']}: [{pr['title']}]({pr['html_url']})"
+    )
+
 async def auto_commit_from_response(response: str, task_id: str) -> list:
-    """Parse <commit> tags from coder response and push to GitHub."""
+    """
+    Parse <commit> tags from coder response.
+    If branch == 'main' or direct commit fails (branch protection), falls back to branch+PR flow.
+    """
     pattern = re.compile(
         r'<commit\s+repo="([^"]+)"\s+path="([^"]+)"\s+message="([^"]+)"(?:\s+branch="([^"]+)")?>(.*?)</commit>',
         re.DOTALL
@@ -414,15 +445,51 @@ async def auto_commit_from_response(response: str, task_id: str) -> list:
             m.group(1), m.group(2), m.group(3),
             m.group(4) or 'main', m.group(5).strip()
         )
-        params = {'owner': GITHUB_USER, 'repo': repo, 'path': path,
+        owner = GITHUB_USER
+
+        # If branch is main, go straight to PR flow
+        if branch in ('main', 'master'):
+            try:
+                result = await commit_via_pr(owner, repo, path, content, message, branch)
+                audit(task_id, 'coder', 'commit_via_pr', {'owner': owner, 'repo': repo, 'path': path}, 'ok')
+                results.append(result)
+            except Exception as e:
+                audit(task_id, 'coder', 'commit_via_pr', {'owner': owner, 'repo': repo, 'path': path}, 'error')
+                results.append(f"\u274c PR flow failed for `{path}`: {str(e)}")
+            continue
+
+        # Otherwise try direct commit first, fall back to PR on branch protection error
+        params = {'owner': owner, 'repo': repo, 'path': path,
                   'content': content, 'message': message, 'branch': branch}
         try:
             result = await _run_gh_intent('commit_file', params)
+            # If on a feature branch, open a PR automatically
+            try:
+                pr = await gh("POST", f"/repos/{owner}/{repo}/pulls", {
+                    "title": message,
+                    "head":  branch,
+                    "base":  "main",
+                    "body":  f"Automated PR by Kal-AI Coder agent.\n\n**File:** `{path}`",
+                })
+                result += f"\n\u2705 PR #{pr['number']} opened: [{pr['title']}]({pr['html_url']})"
+            except Exception:
+                pass  # PR already exists or other issue — commit is still good
             audit(task_id, 'coder', 'commit_file', params, 'ok')
             results.append(result)
         except Exception as e:
-            audit(task_id, 'coder', 'commit_file', params, 'error')
-            results.append(f"\u274c Commit failed for `{path}`: {str(e)}")
+            err = str(e)
+            if 'pull request' in err.lower() or 'protected' in err.lower() or 'required' in err.lower():
+                # Branch protection — fall back to PR flow
+                try:
+                    result = await commit_via_pr(owner, repo, path, content, message)
+                    audit(task_id, 'coder', 'commit_via_pr', params, 'ok')
+                    results.append(result)
+                except Exception as e2:
+                    audit(task_id, 'coder', 'commit_via_pr', params, 'error')
+                    results.append(f"\u274c PR flow failed for `{path}`: {str(e2)}")
+            else:
+                audit(task_id, 'coder', 'commit_file', params, 'error')
+                results.append(f"\u274c Commit failed for `{path}`: {err}")
     return results
 
 async def ollama_stream(system: str, messages: list) -> AsyncGenerator[str, None]:
@@ -555,7 +622,6 @@ async def chat(request: Request):
         chat_msgs = [{"role": m["role"], "content": m["content"]}
                      for m in history if m["role"] in ("user", "assistant")]
 
-        # FAST PATH: direct GitHub lookup/action only
         intent, params = parse_github_intent(message)
         if intent:
             await ws_manager.agent_event("coder", "walking", "Heading to GitHub...")
@@ -579,7 +645,6 @@ async def chat(request: Request):
                 yield sse({"type": "status", "agent": k, "status": "idle"})
             return
 
-        # NORMAL PATH: Orchestrator + specialists
         await ws_manager.agent_event("orchestrator", "thinking", "Analyzing request...")
         yield sse({"type": "status", "agent": "orchestrator", "status": "thinking"})
         manager_response = ""
@@ -614,12 +679,11 @@ async def chat(request: Request):
                 result += chunk
                 yield sse({"type": "chunk", "agent": agent_key, "chunk": chunk})
 
-            # AUTO-COMMIT: scan for <commit> tags in coder output
             if agent_key == "coder":
-                await ws_manager.agent_event("coder", "coding", "Scanning for commits...")
+                await ws_manager.agent_event("coder", "coding", "Processing commits...")
                 commit_results = await auto_commit_from_response(result, task_id)
                 for cr in commit_results:
-                    await ws_manager.agent_event("coder", "coding", "Committing to GitHub...")
+                    await ws_manager.agent_event("coder", "coding", "Pushing to GitHub...")
                     result += "\n\n" + cr
                     yield sse({"type": "chunk", "agent": "coder", "chunk": "\n\n" + cr})
 
@@ -628,7 +692,6 @@ async def chat(request: Request):
             await ws_manager.agent_event(agent_key, "done", "Task complete.")
             yield sse({"type": "status", "agent": agent_key, "status": "done"})
 
-        # Synthesize
         await ws_manager.agent_event("orchestrator", "thinking", "Synthesizing results...")
         yield sse({"type": "status", "agent": "orchestrator", "status": "synthesizing"})
         summary = "\n\n".join(f"[{AGENTS[k]['name']}]:\n{v}" for k, v in specialist_results.items())
