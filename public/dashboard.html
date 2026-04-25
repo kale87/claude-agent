@@ -343,10 +343,10 @@ function statusLabel(s){
 }
 
 function updateGlobalCounters(){
-  document.getElementById('totalTasks').textContent=totalTasks;
-  document.getElementById('totalActions').textContent=totalActions;
-  const pct=totalTasks>0?Math.round((totalOk/totalTasks)*100)+\'%\':\'\u2014\';
-  document.getElementById('successRate').textContent=pct;
+  document.getElementById('totalTasks').textContent = totalTasks;
+  document.getElementById('totalActions').textContent = totalActions;
+  const pct = totalTasks > 0 ? Math.round((totalOk / totalTasks) * 100) + '%' : '\u2014';
+  document.getElementById('successRate').textContent = pct;
 }
 
 // Activity feed
