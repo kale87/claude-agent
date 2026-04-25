@@ -23,9 +23,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
 GITHUB_USER  = "kale87"
 
-# ---------------------------------------------------------------------------
-# WebSocket manager — broadcasts agent events to Agent Office
-# ---------------------------------------------------------------------------
 class WSManager:
     def __init__(self):
         self.connections: list[WebSocket] = []
@@ -36,7 +33,8 @@ class WSManager:
         self.connections.append(ws)
 
     def disconnect(self, ws: WebSocket):
-        self.connections.remove(ws)
+        if ws in self.connections:
+            self.connections.remove(ws)
 
     async def broadcast(self, event: dict):
         dead = []
@@ -46,31 +44,21 @@ class WSManager:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self.connections.remove(ws)
+            if ws in self.connections:
+                self.connections.remove(ws)
 
     async def agent_event(self, agent: str, status: str, message: str = ""):
-        """Emit an agent status event to Agent Office."""
-        await self.broadcast({
-            "type": "agent_status",
-            "agent": agent,
-            "status": status,   # idle | walking | thinking | coding | searching | done
-            "message": message,
-            "ts": datetime.utcnow().isoformat(),
-        })
+        await self.broadcast({"type": "agent_status", "agent": agent, "status": status,
+                               "message": message, "ts": datetime.utcnow().isoformat()})
 
     async def request_confirmation(self, confirm_id: str, action: str, details: str) -> bool:
-        """Send a confirmation request to the browser and wait for Y/N response."""
-        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
         self.pending_confirmations[confirm_id] = future
-        await self.broadcast({
-            "type": "confirmation_request",
-            "id": confirm_id,
-            "action": action,
-            "details": details,
-        })
+        await self.broadcast({"type": "confirmation_request", "id": confirm_id,
+                               "action": action, "details": details})
         try:
-            result = await asyncio.wait_for(future, timeout=60)
-            return result
+            return await asyncio.wait_for(future, timeout=60)
         except asyncio.TimeoutError:
             return False
         finally:
@@ -83,9 +71,6 @@ class WSManager:
 
 ws_manager = WSManager()
 
-# ---------------------------------------------------------------------------
-# Database
-# ---------------------------------------------------------------------------
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "sessions.db"
@@ -96,74 +81,32 @@ def get_db():
     return conn
 
 with get_db() as conn:
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL DEFAULT 'New conversation',
-            messages TEXT NOT NULL DEFAULT '[]',
-            last_accessed INTEGER NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS skills (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            agent TEXT NOT NULL DEFAULT 'shared',
-            content TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT NOT NULL,
-            agent_id TEXT NOT NULL,
-            action TEXT NOT NULL,
-            details TEXT NOT NULL DEFAULT '{}',
-            status TEXT NOT NULL DEFAULT 'ok',
-            created_at INTEGER NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS telemetry (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            agent_id TEXT NOT NULL,
-            task_id TEXT NOT NULL,
-            project_name TEXT NOT NULL DEFAULT '',
-            interaction_count INTEGER NOT NULL DEFAULT 0,
-            status TEXT NOT NULL DEFAULT 'running',
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        )
-    """)
+    conn.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL DEFAULT 'New conversation', messages TEXT NOT NULL DEFAULT '[]', last_accessed INTEGER NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS skills (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, agent TEXT NOT NULL DEFAULT 'shared', content TEXT NOT NULL, created_at INTEGER NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, agent_id TEXT NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'ok', created_at INTEGER NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS telemetry (id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL, task_id TEXT NOT NULL, project_name TEXT NOT NULL DEFAULT '', interaction_count INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'running', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)")
     conn.commit()
 
 def audit(task_id: str, agent_id: str, action: str, details: dict = None, status: str = "ok"):
     now = int(datetime.now().timestamp() * 1000)
     with get_db() as conn:
-        conn.execute(
-            "INSERT INTO audit_log (task_id,agent_id,action,details,status,created_at) VALUES (?,?,?,?,?,?)",
-            (task_id, agent_id, action, json.dumps(details or {}), status, now)
-        )
+        conn.execute("INSERT INTO audit_log (task_id,agent_id,action,details,status,created_at) VALUES (?,?,?,?,?,?)",
+                     (task_id, agent_id, action, json.dumps(details or {}), status, now))
         conn.commit()
 
 def telemetry_start(task_id: str, agent_id: str, project: str = "") -> int:
     now = int(datetime.now().timestamp() * 1000)
     with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO telemetry (agent_id,task_id,project_name,interaction_count,status,created_at,updated_at) VALUES (?,?,?,0,'running',?,?)",
-            (agent_id, task_id, project, now, now)
-        )
+        cur = conn.execute("INSERT INTO telemetry (agent_id,task_id,project_name,interaction_count,status,created_at,updated_at) VALUES (?,?,?,0,'running',?,?)",
+                           (agent_id, task_id, project, now, now))
         conn.commit()
         return cur.lastrowid
 
 def telemetry_done(row_id: int, status: str = "done"):
     now = int(datetime.now().timestamp() * 1000)
     with get_db() as conn:
-        conn.execute(
-            "UPDATE telemetry SET status=?,updated_at=?,interaction_count=interaction_count+1 WHERE id=?",
-            (status, now, row_id)
-        )
+        conn.execute("UPDATE telemetry SET status=?,updated_at=?,interaction_count=interaction_count+1 WHERE id=?",
+                     (status, now, row_id))
         conn.commit()
 
 def get_session(sid: str) -> dict:
@@ -175,21 +118,14 @@ def get_session(sid: str) -> dict:
 def save_session(sid: str, title: str, messages: list):
     now = int(datetime.now().timestamp() * 1000)
     with get_db() as conn:
-        conn.execute("""
-            INSERT INTO sessions (id,title,messages,last_accessed) VALUES (?,?,?,?)
-            ON CONFLICT(id) DO UPDATE SET
-                title=excluded.title,
-                messages=excluded.messages,
-                last_accessed=excluded.last_accessed
-        """, (sid, title, json.dumps(messages), now))
+        conn.execute("INSERT INTO sessions (id,title,messages,last_accessed) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,messages=excluded.messages,last_accessed=excluded.last_accessed",
+                     (sid, title, json.dumps(messages), now))
         conn.commit()
 
 def get_skills(agent_key: str) -> str:
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT name,content FROM skills WHERE agent='shared' OR agent=? ORDER BY created_at",
-            (agent_key,)
-        ).fetchall()
+        rows = conn.execute("SELECT name,content FROM skills WHERE agent='shared' OR agent=? ORDER BY created_at",
+                            (agent_key,)).fetchall()
     if not rows:
         return ""
     return "\n\n---\n## Your Skills\n" + "\n\n".join(f"### {r['name']}\n{r['content']}" for r in rows)
@@ -199,44 +135,35 @@ def get_skills(agent_key: str) -> str:
 # ---------------------------------------------------------------------------
 AGENTS = {
     "orchestrator": {
-        "name": "Orchestrator",
-        "emoji": "\U0001f9e0",
-        "color": "#6366f1",
-        "desk": "center",
-        "system": """You are the Orchestrator of Kal-AI, a multi-agent system.
-
-Your job:
-1. For SIMPLE QUESTIONS — answer directly.
-2. For TASKS — delegate to the right specialist:
-   <delegate agent="coder">specific task</delegate>
-   <delegate agent="analyst">specific task</delegate>
-
-Specialists:
-- coder: code writing, GitHub operations (read/write/branch/PR)
-- analyst: research, analysis, summarization, documentation
-
-NEVER invent GitHub data. Only report what specialists return.""",
+        "name": "Orchestrator", "emoji": "\U0001f9e0", "color": "#6366f1",
+        "system": """You are the Orchestrator of Kal-AI.
+For SIMPLE questions \u2014 answer directly.
+For TASKS \u2014 delegate:
+  <delegate agent="coder">specific coding or GitHub task</delegate>
+  <delegate agent="analyst">research, analysis, documentation task</delegate>
+NEVER invent data. Only report what specialists return.""",
     },
     "coder": {
-        "name": "Coder",
-        "emoji": "\U0001f4bb",
-        "color": "#10b981",
-        "desk": "left",
-        "system": f"""You are the Coder agent. You write clean code, fix bugs, and handle GitHub operations.
-Always use code blocks. Be precise.
-CRITICAL INSTRUCTION FOR GITHUB: 
-To autonomously push code directly to GitHub, you MUST wrap your final code EXACTLY like this:
-<commit repo="YOUR_REPO_NAME" path="YOUR_FILE_PATH" message="YOUR_COMMIT_MESSAGE">
-YOUR_CODE_CONTENT
+        "name": "Coder", "emoji": "\U0001f4bb", "color": "#10b981",
+        "system": f"""You are the Coder agent. GitHub username: {GITHUB_USER}.
+Write clean, working code. Always use fenced code blocks.
+
+To commit code directly to GitHub, wrap your file content EXACTLY like this:
+<commit repo="REPO_NAME" path="FILE_PATH" message="COMMIT_MESSAGE" branch="main">
+FILE CONTENT HERE
 </commit>
-The default owner is {GITHUB_USER}. Do NOT ask the user to commit it manually, do it yourself using the tag.""",
+
+Example:
+<commit repo="kal-ai" path="src/utils.py" message="Add utility functions">
+def hello():
+    return 'world'
+</commit>
+
+Always use <commit> when you write code that should be saved to a repo. Do NOT tell the user to commit manually.""",
     },
     "analyst": {
-        "name": "Analyst",
-        "emoji": "\U0001f50d",
-        "color": "#f59e0b",
-        "desk": "right",
-        "system": "You are the Analyst agent. You research topics, analyze information, and produce clear structured summaries and documentation.",
+        "name": "Analyst", "emoji": "\U0001f50d", "color": "#f59e0b",
+        "system": "You are the Analyst agent. Research topics, analyze information, produce clear structured summaries and documentation.",
     },
 }
 AGENT_KEYS = list(AGENTS.keys())
@@ -245,7 +172,7 @@ def build_system(agent_key: str) -> str:
     return AGENTS[agent_key]["system"] + get_skills(agent_key)
 
 # ---------------------------------------------------------------------------
-# GitHub helpers
+# GitHub
 # ---------------------------------------------------------------------------
 EXCLUDED_WORDS = {
     'github','my','all','the','a','an','repo','repos','repository','repositories',
@@ -257,16 +184,10 @@ EXCLUDED_WORDS = {
 }
 
 async def gh(method: str, endpoint: str, body: dict = None) -> dict:
-    headers = {
-        "Authorization": f"Bearer {GITHUB_TOKEN}",
-        "User-Agent": "kal-ai/1.0",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "User-Agent": "kal-ai/1.0",
+               "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.request(
-            method, f"https://api.github.com{endpoint}", headers=headers, json=body
-        )
+        resp = await client.request(method, f"https://api.github.com{endpoint}", headers=headers, json=body)
         if resp.status_code == 204:
             return {}
         data = resp.json()
@@ -293,63 +214,52 @@ def extract_repo(message: str) -> Optional[str]:
 
 def parse_github_intent(message: str):
     msg = message.lower().strip()
-    if not re.search(
-        r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme|pull.?request)\b',
-        msg, re.I
-    ):
+    if not re.search(r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pr|merge|file|files|github|readme|pull.?request)\b', msg, re.I):
         return None, None
-
     repo = extract_repo(message)
     file_match = re.search(r'\b([\w/-]+\.[\w]{1,6})\b', msg)
     file_path = file_match.group(1) if file_match else None
     branch_m = re.search(r'(?:on\s+)?branch\s+([\w./-]+)', msg)
     branch = branch_m.group(1) if branch_m else ''
-
-    # Write intents
     if re.search(r'(create|make|new)\s+(?:a\s+)?branch', msg):
-        branch_name_m = re.search(r'branch\s+(?:called\s+|named\s+)?["\']?([\w./-]+)["\']?', msg)
-        branch_name = branch_name_m.group(1) if branch_name_m else None
-        from_m = re.search(r'from\s+([\w./-]+)', msg)
-        from_branch = from_m.group(1) if from_m else 'main'
-        if repo and branch_name and branch_name not in EXCLUDED_WORDS:
-            return 'create_branch', {'owner': GITHUB_USER, 'repo': repo, 'branch': branch_name, 'from_branch': from_branch}
+        bm = re.search(r'branch\s+(?:called\s+|named\s+)?["\']?([\w./-]+)["\']?', msg)
+        bn = bm.group(1) if bm else None
+        fm = re.search(r'from\s+([\w./-]+)', msg)
+        fb = fm.group(1) if fm else 'main'
+        if repo and bn and bn not in EXCLUDED_WORDS:
+            return 'create_branch', {'owner': GITHUB_USER, 'repo': repo, 'branch': bn, 'from_branch': fb}
         return None, None
-
-    if re.search(r'merge\s+(?:branch\s+)?', msg) and 'pull request' not in msg and '\bpr\b' not in msg.split():
-        head_m = re.search(r'merge\s+(?:branch\s+)?["\']?([\w./-]+)["\']?\s+into', msg)
-        base_m = re.search(r'into\s+["\']?([\w./-]+)["\']?', msg)
-        head = head_m.group(1) if head_m else None
-        base = base_m.group(1) if base_m else 'main'
+    if re.search(r'merge\s+(?:branch\s+)?', msg) and 'pull request' not in msg:
+        hm = re.search(r'merge\s+(?:branch\s+)?["\']?([\w./-]+)["\']?\s+into', msg)
+        bm = re.search(r'into\s+["\']?([\w./-]+)["\']?', msg)
+        head = hm.group(1) if hm else None
+        base = bm.group(1) if bm else 'main'
         if repo and head:
             return 'merge_branch', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, '_confirm': True}
         return None, None
-
     if re.search(r'(create|open|make)\s+(?:a\s+)?(?:pull.?request|pr)', msg):
-        head_m = re.search(r'from\s+["\']?([\w./-]+)["\']?', msg)
-        base_m = re.search(r'(?:to|into)\s+["\']?([\w./-]+)["\']?', msg)
-        title_m = re.search(r'(?:title|called|named)\s+["\']?(.+?)["\']?(?:\s+in|\s+for|$)', msg)
-        head = head_m.group(1) if head_m else None
-        base = base_m.group(1) if base_m else 'main'
-        title = title_m.group(1) if title_m else f'PR from {head} into {base}'
+        hm = re.search(r'from\s+["\']?([\w./-]+)["\']?', msg)
+        bm = re.search(r'(?:to|into)\s+["\']?([\w./-]+)["\']?', msg)
+        tm = re.search(r'(?:title|called|named)\s+["\']?(.+?)["\']?(?:\s+in|\s+for|$)', msg)
+        head = hm.group(1) if hm else None
+        base = bm.group(1) if bm else 'main'
+        title = tm.group(1) if tm else f'PR from {head} into {base}'
         if repo and head:
             return 'create_pr', {'owner': GITHUB_USER, 'repo': repo, 'head': head, 'base': base, 'title': title, '_confirm': True}
         return None, None
-
     if re.search(r'merge\s+(?:pull.?request|pr)', msg):
-        num_m = re.search(r'#?(\d+)', msg)
-        number = int(num_m.group(1)) if num_m else None
+        nm = re.search(r'#?(\d+)', msg)
+        number = int(nm.group(1)) if nm else None
         if repo and number:
             return 'merge_pr', {'owner': GITHUB_USER, 'repo': repo, 'number': number, '_confirm': True}
         return None, None
-
-    # Read intents
     if not repo and re.search(r'(list|show|get|what).{0,30}repos?', msg):
         return 'list_repos', {}
     if not repo and re.search(r'\brepos?\b', msg):
         return 'list_repos', {}
     if repo and re.search(r'(list|show|files?|contents?|inside|browse|explore|what.{0,10}in)', msg):
-        path_m = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir)', msg)
-        return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': path_m.group(1) if path_m else '', 'branch': branch}
+        pm = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir)', msg)
+        return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': pm.group(1) if pm else '', 'branch': branch}
     if repo and file_path:
         return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch}
     if repo and re.search(r'branch(es)?', msg):
@@ -358,28 +268,16 @@ def parse_github_intent(message: str):
         return 'list_prs', {'owner': GITHUB_USER, 'repo': repo, 'state': 'open'}
     if repo:
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': '', 'branch': ''}
-
     return None, None
 
-async def execute_intent(
-    intent: str,
-    params: dict,
-    task_id: str,
-    needs_confirm: bool = False,
-) -> str:
-    # Strip internal flags
+async def execute_intent(intent: str, params: dict, task_id: str, needs_confirm: bool = False) -> str:
     p = {k: v for k, v in params.items() if not k.startswith('_')}
-
-    # Confirmation required for destructive ops
     if needs_confirm:
         confirm_id = str(uuid.uuid4())
-        action_label = intent.replace('_', ' ').title()
-        details = json.dumps(p, indent=2)
-        approved = await ws_manager.request_confirmation(confirm_id, action_label, details)
+        approved = await ws_manager.request_confirmation(confirm_id, intent.replace('_', ' ').title(), json.dumps(p, indent=2))
         if not approved:
             audit(task_id, 'coder', intent, p, 'rejected')
             return f"\u274c Action `{intent}` was rejected."
-
     try:
         result = await _run_gh_intent(intent, p)
         audit(task_id, 'coder', intent, p, 'ok')
@@ -397,7 +295,6 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
             desc = f" \u2014 {r['description']}" if r.get("description") else ""
             lines.append(f"- **{r['name']}**{priv}{desc}")
         return "\n".join(lines)
-
     elif intent == 'list_files':
         owner, repo = p['owner'], p['repo']
         path = p.get('path', '').lstrip('/')
@@ -414,7 +311,6 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
                 lines.append(f"- {icon} `{f['name']}`")
             return "\n".join(lines)
         return "Not a directory."
-
     elif intent == 'read_file':
         owner, repo, path = p['owner'], p['repo'], p['path']
         branch = p.get('branch', '')
@@ -426,14 +322,12 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
         ext = path.split('.')[-1] if '.' in path else ''
         truncated = content[:4000] + ("\n..." if len(content) > 4000 else "")
         return f"**`{path}`:**\n```{ext}\n{truncated}\n```"
-
     elif intent == 'list_branches':
         data = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/branches")
         lines = [f"**Branches in `{p['repo']}`:**"]
         for b in data:
             lines.append(f"- `{b['name']}`")
         return "\n".join(lines)
-
     elif intent == 'list_prs':
         state = p.get('state', 'open')
         data = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/pulls?state={state}&per_page=20")
@@ -443,31 +337,26 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
         for pr in data:
             lines.append(f"- #{pr['number']} **{pr['title']}** (`{pr['head']['ref']}` \u2192 `{pr['base']['ref']}`)") 
         return "\n".join(lines)
-
     elif intent == 'create_branch':
-        ref_data = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/git/ref/heads/{p.get('from_branch','main')}")
+        ref_data = await gh("GET", f"/repos/{p['owner']}/{p['repo']}/git/ref/heads/{p.get('from_branch', 'main')}")
         sha = ref_data["object"]["sha"]
         await gh("POST", f"/repos/{p['owner']}/{p['repo']}/git/refs",
                  {"ref": f"refs/heads/{p['branch']}", "sha": sha})
-        return f"\u2705 Branch `{p['branch']}` created from `{p.get('from_branch','main')}` in `{p['repo']}`"
-
+        return f"\u2705 Branch `{p['branch']}` created from `{p.get('from_branch', 'main')}` in `{p['repo']}`"
     elif intent == 'merge_branch':
         result = await gh("POST", f"/repos/{p['owner']}/{p['repo']}/merges",
                           {"base": p['base'], "head": p['head'],
                            "commit_message": f"Merge {p['head']} into {p['base']}"})
-        return f"\u2705 Merged `{p['head']}` into `{p['base']}` (commit `{result.get('sha','')[:7]}`)"  
-
+        return f"\u2705 Merged `{p['head']}` into `{p['base']}` (commit `{result.get('sha', '')[:7]}`)"
     elif intent == 'create_pr':
         result = await gh("POST", f"/repos/{p['owner']}/{p['repo']}/pulls",
                           {"title": p['title'], "head": p['head'],
                            "base": p.get('base', 'main'), "body": p.get('body', '')})
         return f"\u2705 PR #{result['number']} created: [{result['title']}]({result['html_url']})"
-
     elif intent == 'merge_pr':
         result = await gh("PUT", f"/repos/{p['owner']}/{p['repo']}/pulls/{p['number']}/merge",
                           {"merge_method": "squash"})
-        return f"\u2705 PR #{p['number']} merged (commit `{result.get('sha','')[:7]}`)"  
-
+        return f"\u2705 PR #{p['number']} merged (commit `{result.get('sha', '')[:7]}`)"
     elif intent == 'commit_file':
         branch = p.get('branch', 'main')
         body: dict = {
@@ -482,19 +371,41 @@ async def _run_gh_intent(intent: str, p: dict) -> str:
             pass
         result = await gh("PUT", f"/repos/{p['owner']}/{p['repo']}/contents/{p['path']}", body)
         sha = result.get('commit', {}).get('sha', '')[:7]
-        return f"\u2705 Committed `{p['path']}` to `{branch}` (commit `{sha}`)"
-
+        return f"\u2705 Committed `{p['path']}` to `{branch}` in `{p['repo']}` (commit `{sha}`)"
     return f"Unknown intent: {intent}"
+
+async def auto_commit_from_response(response: str, task_id: str) -> list:
+    """
+    Scan coder response for <commit> tags and push each file to GitHub automatically.
+    """
+    pattern = re.compile(
+        r'<commit\s+repo="([^"]+)"\s+path="([^"]+)"\s+message="([^"]+)"(?:\s+branch="([^"]+)")?>(.*?)</commit>',
+        re.DOTALL
+    )
+    results = []
+    for m in pattern.finditer(response):
+        repo, path, message, branch, content = (
+            m.group(1), m.group(2), m.group(3),
+            m.group(4) or 'main', m.group(5).strip()
+        )
+        params = {'owner': GITHUB_USER, 'repo': repo, 'path': path,
+                  'content': content, 'message': message, 'branch': branch}
+        try:
+            result = await _run_gh_intent('commit_file', params)
+            audit(task_id, 'coder', 'commit_file', params, 'ok')
+            results.append(result)
+        except Exception as e:
+            audit(task_id, 'coder', 'commit_file', params, 'error')
+            results.append(f"\u274c Commit failed for `{path}`: {str(e)}")
+    return results
 
 # ---------------------------------------------------------------------------
 # Ollama
 # ---------------------------------------------------------------------------
 async def ollama_stream(system: str, messages: list) -> AsyncGenerator[str, None]:
-    payload = {
-        "model": OLLAMA_MODEL,
-        "messages": [{"role": "system", "content": system}] + messages,
-        "stream": True,
-    }
+    payload = {"model": OLLAMA_MODEL,
+               "messages": [{"role": "system", "content": system}] + messages,
+               "stream": True}
     async with httpx.AsyncClient(timeout=120) as client:
         async with client.stream("POST", f"{OLLAMA_HOST}/api/chat", json=payload) as resp:
             async for line in resp.aiter_lines():
@@ -518,7 +429,6 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         while True:
             data = await ws.receive_json()
-            # Handle confirmation responses
             if data.get("type") == "confirmation_response":
                 ws_manager.resolve_confirmation(data["id"], data["approved"])
     except WebSocketDisconnect:
@@ -534,26 +444,18 @@ async def ollama_status():
         async with httpx.AsyncClient(timeout=3) as client:
             data = (await client.get(f"{OLLAMA_HOST}/api/tags")).json()
         models = [m["name"] for m in data.get("models", [])]
-        return {
-            "running": True,
-            "models": models,
-            "hasModel": any(m.startswith(OLLAMA_MODEL.split(":")[0]) for m in models),
-            "currentModel": OLLAMA_MODEL,
-        }
+        return {"running": True, "models": models,
+                "hasModel": any(m.startswith(OLLAMA_MODEL.split(":")[0]) for m in models),
+                "currentModel": OLLAMA_MODEL}
     except Exception as e:
         return {"running": False, "error": str(e)}
 
 @app.get("/sessions")
 async def list_sessions():
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id,title,messages,last_accessed FROM sessions WHERE id LIKE 'ui-%' ORDER BY last_accessed DESC LIMIT 50"
-        ).fetchall()
-    return [
-        {"id": r["id"], "title": r["title"],
-         "count": len(json.loads(r["messages"])), "lastAccessed": r["last_accessed"]}
-        for r in rows if json.loads(r["messages"])
-    ]
+        rows = conn.execute("SELECT id,title,messages,last_accessed FROM sessions WHERE id LIKE 'ui-%' ORDER BY last_accessed DESC LIMIT 50").fetchall()
+    return [{"id": r["id"], "title": r["title"], "count": len(json.loads(r["messages"])), "lastAccessed": r["last_accessed"]}
+            for r in rows if json.loads(r["messages"])]
 
 @app.get("/sessions/{sid}/messages")
 async def get_messages(sid: str):
@@ -570,24 +472,19 @@ async def list_skills(agent: Optional[str] = None):
         rows = conn.execute(
             "SELECT * FROM skills WHERE agent=? OR agent='shared' ORDER BY created_at" if agent
             else "SELECT * FROM skills ORDER BY created_at",
-            (agent,) if agent else ()
-        ).fetchall()
+            (agent,) if agent else ()).fetchall()
     return [dict(r) for r in rows]
 
 @app.post("/skills")
 async def create_skill(request: Request):
     b = await request.json()
-    name  = b.get("name", "").strip()
-    agent = b.get("agent", "shared").strip()
-    content = b.get("content", "").strip()
+    name, agent, content = b.get("name", "").strip(), b.get("agent", "shared").strip(), b.get("content", "").strip()
     if not name or not content:
         return JSONResponse({"error": "name and content required"}, status_code=400)
     now = int(datetime.now().timestamp() * 1000)
     with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO skills (name,agent,content,created_at) VALUES (?,?,?,?)",
-            (name, agent, content, now)
-        )
+        cur = conn.execute("INSERT INTO skills (name,agent,content,created_at) VALUES (?,?,?,?)",
+                           (name, agent, content, now))
         conn.commit()
     return {"id": cur.lastrowid, "name": name, "agent": agent, "content": content, "created_at": now}
 
@@ -595,10 +492,8 @@ async def create_skill(request: Request):
 async def update_skill(skill_id: int, request: Request):
     b = await request.json()
     with get_db() as conn:
-        conn.execute(
-            "UPDATE skills SET name=?,content=?,agent=? WHERE id=?",
-            (b.get("name","").strip(), b.get("content","").strip(), b.get("agent","shared").strip(), skill_id)
-        )
+        conn.execute("UPDATE skills SET name=?,content=?,agent=? WHERE id=?",
+                     (b.get("name", "").strip(), b.get("content", "").strip(), b.get("agent", "shared").strip(), skill_id))
         conn.commit()
     return {"ok": True}
 
@@ -612,60 +507,46 @@ async def delete_skill(skill_id: int):
 @app.get("/audit")
 async def get_audit(limit: int = 50):
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 @app.get("/telemetry")
 async def get_telemetry():
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM telemetry ORDER BY created_at DESC LIMIT 100"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM telemetry ORDER BY created_at DESC LIMIT 100").fetchall()
     return [dict(r) for r in rows]
 
-# ---------------------------------------------------------------------------
-# Chat
-# ---------------------------------------------------------------------------
 @app.post("/chat")
 async def chat(request: Request):
-    body       = await request.json()
-    message    = body.get("message", "").strip()
+    body = await request.json()
+    message = body.get("message", "").strip()
     session_id = body.get("sessionId", "default")
     if not message:
         return JSONResponse({"error": "message required"}, status_code=400)
-
     task_id = str(uuid.uuid4())
 
     async def generate():
         def sse(data: dict) -> str:
             return f"data: {json.dumps(data)}\n\n"
 
-        sess    = get_session(session_id)
+        sess = get_session(session_id)
         history = sess["messages"]
         history.append({"role": "user", "content": message, "agent": "user"})
-        chat_msgs = [
-            {"role": m["role"], "content": m["content"]}
-            for m in history if m["role"] in ("user", "assistant")
-        ]
+        chat_msgs = [{"role": m["role"], "content": m["content"]}
+                     for m in history if m["role"] in ("user", "assistant")]
 
-        # FAST PATH: GitHub intent
+        # FAST PATH: direct GitHub intent
         intent, params = parse_github_intent(message)
         if intent:
             await ws_manager.agent_event("coder", "walking", "Heading to GitHub...")
             yield sse({"type": "status", "agent": "coder", "status": "working"})
             yield sse({"type": "tool_call", "agent": "coder", "tool": intent, "params": params})
-
             needs_confirm = params.get('_confirm', False)
             tel_id = telemetry_start(task_id, "coder")
             await ws_manager.agent_event("coder", "coding", f"Running: {intent}")
-
             result = await execute_intent(intent, params, task_id, needs_confirm)
-
             await ws_manager.agent_event("coder", "done", "Finished.")
             telemetry_done(tel_id)
-
             yield sse({"type": "tool_result", "agent": "coder", "tool": intent, "result": result})
             yield sse({"type": "chunk", "agent": "coder", "chunk": result})
             history.append({"role": "assistant", "content": result, "agent": "coder"})
@@ -681,16 +562,12 @@ async def chat(request: Request):
         # NORMAL PATH: Orchestrator
         await ws_manager.agent_event("orchestrator", "thinking", "Analyzing request...")
         yield sse({"type": "status", "agent": "orchestrator", "status": "thinking"})
-
         manager_response = ""
         async for chunk in ollama_stream(build_system("orchestrator"), chat_msgs):
             manager_response += chunk
             yield sse({"type": "chunk", "agent": "orchestrator", "chunk": chunk})
 
-        delegations = re.findall(
-            r'<delegate agent="(\w+)">(.*?)</delegate>',
-            manager_response, re.DOTALL
-        )
+        delegations = re.findall(r'<delegate agent="(\w+)">(.*?)</delegate>', manager_response, re.DOTALL)
 
         if not delegations:
             history.append({"role": "assistant", "content": manager_response, "agent": "orchestrator"})
@@ -702,21 +579,29 @@ async def chat(request: Request):
                 yield sse({"type": "status", "agent": k, "status": "idle"})
             return
 
-        specialist_results: dict[str, str] = {}
+        specialist_results: dict = {}
         for agent_key, task in delegations:
             if agent_key not in AGENTS:
                 continue
             await ws_manager.agent_event(agent_key, "walking", "Walking to desk...")
             yield sse({"type": "status", "agent": agent_key, "status": "working"})
-            await ws_manager.agent_event(agent_key, "coding" if agent_key == "coder" else "searching", task[:60])
-
+            await ws_manager.agent_event(agent_key,
+                                         "coding" if agent_key == "coder" else "searching", task[:60])
             tel_id = telemetry_start(task_id, agent_key)
             result = ""
-            async for chunk in ollama_stream(
-                build_system(agent_key), [{"role": "user", "content": task.strip()}]
-            ):
+            async for chunk in ollama_stream(build_system(agent_key),
+                                             [{"role": "user", "content": task.strip()}]):
                 result += chunk
                 yield sse({"type": "chunk", "agent": agent_key, "chunk": chunk})
+
+            # AUTO-COMMIT: parse <commit> tags from coder response and push to GitHub
+            if agent_key == "coder":
+                await ws_manager.agent_event("coder", "coding", "Scanning for commits...")
+                commit_results = await auto_commit_from_response(result, task_id)
+                for cr in commit_results:
+                    await ws_manager.agent_event("coder", "coding", "Committing to GitHub...")
+                    result += "\n\n" + cr
+                    yield sse({"type": "chunk", "agent": "coder", "chunk": "\n\n" + cr})
 
             specialist_results[agent_key] = result
             telemetry_done(tel_id)
@@ -729,9 +614,7 @@ async def chat(request: Request):
         summary = "\n\n".join(f"[{AGENTS[k]['name']}]:\n{v}" for k, v in specialist_results.items())
         synth_msgs = chat_msgs + [
             {"role": "assistant", "content": manager_response},
-            {"role": "user", "content": (
-                f'User asked: "{message}"\n\nSpecialist results:\n{summary}\n\nPresent clearly.'
-            )},
+            {"role": "user", "content": f'User asked: "{message}"\n\nSpecialist results:\n{summary}\n\nPresent clearly.'},
         ]
         synthesis = ""
         async for chunk in ollama_stream(build_system("orchestrator"), synth_msgs):
@@ -746,13 +629,9 @@ async def chat(request: Request):
         for k in AGENT_KEYS:
             yield sse({"type": "status", "agent": k, "status": "idle"})
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-# GitHub panel API
 @app.get("/github/repos")
 async def gh_repos():
     try: return await gh("GET", "/user/repos?sort=updated&per_page=30")
@@ -777,11 +656,9 @@ async def gh_pulls(owner: str, repo: str):
 async def gh_commit(owner: str, repo: str, request: Request):
     try:
         b = await request.json()
-        payload = {
-            "message": b["message"],
-            "content": base64.b64encode(b["content"].encode()).decode(),
-            "branch": b.get("branch", "main"),
-        }
+        payload = {"message": b["message"],
+                   "content": base64.b64encode(b["content"].encode()).decode(),
+                   "branch": b.get("branch", "main")}
         if b.get("sha"): payload["sha"] = b["sha"]
         return await gh("PUT", f"/repos/{owner}/{repo}/contents/{b['path']}", payload)
     except Exception as e: return JSONResponse({"error": str(e)}, status_code=500)
@@ -796,11 +673,11 @@ app.mount("/", StaticFiles(directory="public", html=True), name="static")
 if __name__ == "__main__":
     import uvicorn
     print(f"""
-\U0001f680 Kal-AI running at http://localhost:{PORT}
-   Model:  {OLLAMA_MODEL}
-   Ollama: {OLLAMA_HOST}
-   GitHub: {'connected' if GITHUB_TOKEN else 'no token'}
-   WS:     ws://localhost:{PORT}/ws
+\U0001f680 Kal-AI  http://localhost:{PORT}
+   Model : {OLLAMA_MODEL}
+   GitHub: {'connected' if GITHUB_TOKEN else 'NO TOKEN'}
+   WS    : ws://localhost:{PORT}/ws
+   Tabs  : Chat | Agent Office | Dashboard | Audit Log
 
    Make sure Ollama is running: ollama serve
 """)

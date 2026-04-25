@@ -7,729 +7,518 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#0a0a14;overflow:hidden;font-family:'Courier New',monospace}
-#game-container{width:100%;height:100%}
-
-/* HUD overlay */
+html,body{width:100%;height:100%;background:#050510;overflow:hidden;font-family:'Courier New',monospace}
+#game-container{width:100%;height:calc(100% - 40px - 72px);position:relative;top:40px}
 #hud{
-  position:fixed;top:0;left:0;right:0;
-  display:flex;justify-content:space-between;align-items:center;
-  padding:8px 16px;
-  background:rgba(5,5,18,0.85);backdrop-filter:blur(8px);
-  border-bottom:1px solid rgba(99,102,241,0.3);
-  z-index:100;
+  position:fixed;top:0;left:0;right:0;height:40px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;
+  background:rgba(5,5,16,0.95);backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(99,102,241,0.4);
+  z-index:200;
 }
 .hud-title{
-  font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-  background:linear-gradient(135deg,#6366f1,#a78bfa);
+  font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;
+  background:linear-gradient(90deg,#6366f1,#a78bfa,#10b981);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
-.hud-agents{display:flex;gap:12px;}
+.hud-agents{display:flex;gap:8px;}
 .agent-pill{
-  display:flex;align-items:center;gap:6px;
-  padding:4px 10px;border-radius:20px;
-  border:1px solid rgba(255,255,255,0.1);
-  background:rgba(255,255,255,0.05);
-  font-size:11px;color:rgba(255,255,255,0.6);
-  transition:all 0.3s;
+  display:flex;align-items:center;gap:5px;
+  padding:3px 10px;border-radius:20px;
+  border:1px solid rgba(255,255,255,0.08);
+  background:rgba(255,255,255,0.04);
+  font-size:10px;color:rgba(255,255,255,0.5);
+  transition:all 0.25s;
+  cursor:default;
 }
 .agent-pill.active{
+  background:rgba(var(--cr),0.12);
   border-color:var(--c);
-  box-shadow:0 0 12px -2px var(--c);
+  box-shadow:0 0 16px -4px var(--c);
   color:#fff;
 }
-.agent-dot{width:6px;height:6px;border-radius:50%;background:var(--c);flex-shrink:0;}
-.agent-pill.active .agent-dot{animation:pulse 1s ease-in-out infinite alternate;}
-@keyframes pulse{to{transform:scale(1.8);opacity:0.5;}}
-.agent-state{font-size:10px;opacity:0.7;font-style:italic;}
-.ws-status{display:flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,0.4);}
-.ws-dot{width:5px;height:5px;border-radius:50%;background:#374151;}
+.agent-dot{width:5px;height:5px;border-radius:50%;background:var(--c);flex-shrink:0;transition:all 0.25s;}
+.agent-pill.active .agent-dot{box-shadow:0 0 6px var(--c);animation:pulse 0.8s ease-in-out infinite alternate;}
+@keyframes pulse{to{transform:scale(2);opacity:0.4;}}
+.agent-state{font-size:9px;opacity:0.6;font-style:italic;}
+.ws-status{display:flex;align-items:center;gap:5px;font-size:10px;color:rgba(255,255,255,0.35);}
+.ws-dot{width:4px;height:4px;border-radius:50%;background:#374151;}
 .ws-dot.on{background:#4ade80;box-shadow:0 0 6px #4ade80;}
-
-/* Activity log */
-#activity-log{
-  position:fixed;bottom:0;left:0;right:0;
-  background:rgba(5,5,18,0.9);backdrop-filter:blur(8px);
+#log{
+  position:fixed;bottom:0;left:0;right:0;height:72px;
+  background:rgba(5,5,16,0.95);backdrop-filter:blur(12px);
   border-top:1px solid rgba(99,102,241,0.2);
-  padding:8px 16px;
-  height:80px;overflow:hidden;
-  z-index:100;
+  padding:6px 16px;
+  z-index:200;
+  overflow:hidden;
 }
-.log-title{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(99,102,241,0.6);margin-bottom:4px;}
-#log-entries{display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+.log-title{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:rgba(99,102,241,0.5);margin-bottom:3px;}
+#log-entries{display:flex;flex-direction:column;gap:1px;}
 .log-entry{
-  font-size:11px;color:rgba(255,255,255,0.5);
-  display:flex;gap:8px;align-items:center;
-  animation:slideIn 0.3s ease;
+  font-size:10px;color:rgba(255,255,255,0.45);
+  display:flex;gap:8px;
+  animation:logIn 0.2s ease;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-@keyframes slideIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
-.log-time{color:rgba(99,102,241,0.5);font-size:10px;flex-shrink:0;}
-.log-agent{font-weight:700;flex-shrink:0;}
-.log-msg{opacity:0.7;}
+@keyframes logIn{from{opacity:0;transform:translateX(-8px);}to{opacity:1;transform:none;}}
+.log-t{color:rgba(99,102,241,0.4);flex-shrink:0;}
+.log-a{font-weight:700;flex-shrink:0;}
 </style>
 </head>
 <body>
 <div id="hud">
-  <div class="hud-title">KAL-AI OFFICE</div>
+  <div class="hud-title">&#9724; KAL-AI OFFICE</div>
   <div class="hud-agents" id="agentPills"></div>
   <div class="ws-status">
     <div class="ws-dot" id="wsDot"></div>
-    <span id="wsLabel">disconnected</span>
+    <span id="wsLabel">connecting</span>
   </div>
 </div>
-
 <div id="game-container"></div>
-
-<div id="activity-log">
-  <div class="log-title">&#9632; System Activity</div>
+<div id="log">
+  <div class="log-title">&#9632; SYSTEM LOG</div>
   <div id="log-entries"></div>
 </div>
-
 <script>
 'use strict';
-
-// -----------------------------------------------------------------------
-// Agent definitions
-// -----------------------------------------------------------------------
-const AGENTS = {
-  orchestrator: { name:'Orchestrator', emoji:'\uD83E\uDDE0', color:'#6366f1', label:'MGR' },
-  coder:        { name:'Coder',        emoji:'\uD83D\uDCBB', color:'#10b981', label:'DEV' },
-  analyst:      { name:'Analyst',      emoji:'\uD83D\uDD0D', color:'#f59e0b', label:'ANL' },
+const AGENTS={
+  orchestrator:{name:'Orchestrator',emoji:'\uD83E\uDDE0',color:'#6366f1',hex:0x6366f1,label:'MGR',skin:0xfdbcb4},
+  coder:{name:'Coder',emoji:'\uD83D\uDCBB',color:'#10b981',hex:0x10b981,label:'DEV',skin:0xfdc9a0},
+  analyst:{name:'Analyst',emoji:'\uD83D\uDD0D',color:'#f59e0b',hex:0xf59e0b,label:'ANL',skin:0xf5d5a0},
 };
+const agState=Object.fromEntries(Object.keys(AGENTS).map(k=>[k,{status:'idle',msg:''}]));
 
-const state = Object.fromEntries(Object.keys(AGENTS).map(k => [k, { status:'idle', msg:'' }]));
-
-// -----------------------------------------------------------------------
-// HUD
-// -----------------------------------------------------------------------
-const pillsEl = document.getElementById('agentPills');
-Object.entries(AGENTS).forEach(([k, a]) => {
-  const el = document.createElement('div');
-  el.className = 'agent-pill';
-  el.id = 'pill-' + k;
-  el.style.setProperty('--c', a.color);
-  el.innerHTML = `<div class="agent-dot"></div><span>${a.emoji} ${a.name}</span><span class="agent-state" id="state-${k}">idle</span>`;
+// HUD pills
+const pillsEl=document.getElementById('agentPills');
+Object.entries(AGENTS).forEach(([k,a])=>{
+  const el=document.createElement('div');
+  el.className='agent-pill';
+  el.id='pill-'+k;
+  el.style.setProperty('--c',a.color);
+  el.innerHTML=`<div class="agent-dot"></div><span>${a.emoji} ${a.name}</span><span class="agent-state" id="st-${k}">idle</span>`;
   pillsEl.appendChild(el);
 });
-
-function updateHUD(agent, status, msg) {
-  const pill = document.getElementById('pill-' + agent);
-  const stateEl = document.getElementById('state-' + agent);
-  if (!pill) return;
-  const active = status !== 'idle';
-  pill.classList.toggle('active', active);
-  if (stateEl) stateEl.textContent = status + (msg ? ': ' + msg.slice(0,20) : '');
+function updatePill(agent,status,msg){
+  const pill=document.getElementById('pill-'+agent);
+  const st=document.getElementById('st-'+agent);
+  if(!pill)return;
+  pill.classList.toggle('active',status!=='idle');
+  if(st)st.textContent=status+(msg?' \u00b7 '+msg.slice(0,18):'');
 }
 
-// -----------------------------------------------------------------------
-// Activity log
-// -----------------------------------------------------------------------
-const logEl = document.getElementById('log-entries');
-function addLog(agent, status, msg) {
-  const now = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-  const a = AGENTS[agent];
-  if (!a) return;
-  const entry = document.createElement('div');
-  entry.className = 'log-entry';
-  entry.innerHTML = `<span class="log-time">${now}</span><span class="log-agent" style="color:${a.color}">${a.label}</span><span class="log-msg">${status}${msg?' — '+msg:''}</span>`;
-  logEl.prepend(entry);
-  while (logEl.children.length > 4) logEl.removeChild(logEl.lastChild);
+// Log
+const logEl=document.getElementById('log-entries');
+function addLog(agent,status,msg){
+  const a=AGENTS[agent]; if(!a)return;
+  const now=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const e=document.createElement('div');
+  e.className='log-entry';
+  e.innerHTML=`<span class="log-t">${now}</span><span class="log-a" style="color:${a.color}">${a.label}</span><span>${status}${msg?' \u2014 '+msg:''}</span>`;
+  logEl.prepend(e);
+  while(logEl.children.length>4)logEl.removeChild(logEl.lastChild);
 }
 
-// -----------------------------------------------------------------------
-// WebSocket — connect to parent page's WS
-// -----------------------------------------------------------------------
+// WebSocket
 let ws;
-function connectWS() {
-  const host = window.location.host || 'localhost:3000';
-  ws = new WebSocket(`ws://${host}/ws`);
-  ws.onopen = () => {
-    document.getElementById('wsDot').classList.add('on');
-    document.getElementById('wsLabel').textContent = 'live';
-  };
-  ws.onclose = () => {
-    document.getElementById('wsDot').classList.remove('on');
-    document.getElementById('wsLabel').textContent = 'reconnecting...';
-    setTimeout(connectWS, 2000);
-  };
-  ws.onmessage = e => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'agent_status') {
-        const { agent, status, message } = msg;
-        state[agent] = { status, msg: message || '' };
-        updateHUD(agent, status, message);
-        addLog(agent, status, message);
-        if (window.officeGame) window.officeGame.onAgentEvent(agent, status, message);
+function connectWS(){
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen=()=>{document.getElementById('wsDot').classList.add('on');document.getElementById('wsLabel').textContent='live';};
+  ws.onclose=()=>{document.getElementById('wsDot').classList.remove('on');document.getElementById('wsLabel').textContent='reconnecting';setTimeout(connectWS,2000);};
+  ws.onmessage=e=>{
+    try{
+      const d=JSON.parse(e.data);
+      if(d.type==='agent_status'){
+        const{agent,status,message}=d;
+        agState[agent]={status,msg:message||''};
+        updatePill(agent,status,message);
+        addLog(agent,status,message);
+        if(window.game)window.game.scene.getScene('Office')?.onAgentEvent(agent,status,message);
       }
-    } catch(e) {}
+    }catch(e){}
   };
 }
 connectWS();
 
 // -----------------------------------------------------------------------
-// Phaser office game
+// Phaser Scene
 // -----------------------------------------------------------------------
-const TILE = 16;
-const SCALE = 3;
-const TS = TILE * SCALE; // 48px per tile
-
-// Office layout (tile grid)
-// F=floor, W=wall, D=desk, C=chair, P=plant, S=shelf, M=monitor
-const ROOM_W = 18;
-const ROOM_H = 12;
-
-class OfficeScene extends Phaser.Scene {
-  constructor() { super({ key: 'Office' }); }
-
-  preload() {
-    // We'll generate all graphics procedurally with Graphics objects
-    // No external assets needed
+class OfficeScene extends Phaser.Scene{
+  constructor(){super({key:'Office'});}
+  create(){
+    const W=this.scale.width,H=this.scale.height;
+    this.W=W;this.H=H;
+    this.gFloor=this.add.graphics();
+    this.gFurni=this.add.graphics();
+    this.gGlow=this.add.graphics();
+    this.agents={};
+    this.bubbles={};
+    this.glowTime=0;
+    this.drawAll(W,H);
+    this.createAgents(W,H);
+    this.scale.on('resize',(_,gS)=>this.onResize(gS.width,gS.height));
   }
 
-  create() {
-    const W = this.scale.width;
-    const H = this.scale.height;
-
-    // --- Floor grid ---
-    this.floorLayer = this.add.graphics();
-    this.drawFloor(W, H);
-
-    // --- Furniture ---
-    this.furnitureLayer = this.add.graphics();
-    this.drawFurniture(W, H);
-
-    // --- Agent sprites (pixel characters) ---
-    this.agents = {};
-    this.createAgents(W, H);
-
-    // --- Speech bubbles ---
-    this.bubbles = {};
-
-    // --- Particle effects ---
-    this.particles = this.add.graphics();
-
-    // --- Resize handler ---
-    this.scale.on('resize', () => this.onResize());
-
-    // Register globally
-    window.officeGame = this;
+  drawAll(W,H){
+    this.gFloor.clear();
+    this.gFurni.clear();
+    const HUD=40,LOG=72;
+    const aH=H-HUD-LOG; // available height
+    const mid={x:W/2,y:HUD+aH/2};
+    // desk positions
+    this.desks={
+      orchestrator:{x:mid.x,       y:HUD+aH*0.32},
+      coder:       {x:W*0.22,      y:HUD+aH*0.68},
+      analyst:     {x:W*0.78,      y:HUD+aH*0.68},
+    };
+    this.drawFloor(W,H,HUD,LOG);
+    this.drawDecor(W,H,HUD,aH);
+    Object.entries(this.desks).forEach(([k,d])=>{
+      const a=AGENTS[k];
+      this.drawDesk(this.gFurni,d.x,d.y,a.hex,a.label,agState[k]?.status||'idle');
+    });
   }
 
-  drawFloor(W, H) {
-    const g = this.floorLayer;
-    g.clear();
-    const cols = Math.ceil(W / TS) + 1;
-    const rows = Math.ceil(H / TS) + 1;
-
-    for (let row = 0; row < rows; row++) {
-      for (let col = 0; col < cols; col++) {
-        const x = col * TS;
-        const y = row * TS;
-        const dark = (row + col) % 2 === 0;
-        g.fillStyle(dark ? 0x0d0d1f : 0x0f0f24);
-        g.fillRect(x, y, TS, TS);
-        // Floor tile edge
-        g.lineStyle(1, 0x1a1a3a, 0.5);
-        g.strokeRect(x, y, TS, TS);
+  drawFloor(W,H,HUD,LOG){
+    const g=this.gFloor;
+    // Background
+    g.fillStyle(0x060612);
+    g.fillRect(0,0,W,H);
+    // Tile grid
+    const TS=40;
+    for(let y=HUD;y<H-LOG;y+=TS){
+      for(let x=0;x<W;x+=TS){
+        const dark=((y/TS|0)+(x/TS|0))%2===0;
+        g.fillStyle(dark?0x080818:0x0a0a1e,1);
+        g.fillRect(x,y,TS,TS);
       }
     }
-
+    // Grid lines
+    g.lineStyle(1,0x12123a,0.4);
+    for(let x=0;x<=W;x+=TS){g.beginPath();g.moveTo(x,HUD);g.lineTo(x,H-LOG);g.strokePath();}
+    for(let y=HUD;y<=H-LOG;y+=TS){g.beginPath();g.moveTo(0,y);g.lineTo(W,y);g.strokePath();}
     // Room border
-    const margin = TS;
-    const rW = W - margin * 2;
-    const rH = H - margin * 2;
-    g.lineStyle(2, 0x6366f1, 0.4);
-    g.strokeRect(margin, margin, rW, rH);
-
-    // Corner accents
-    g.lineStyle(3, 0x6366f1, 0.8);
-    const cs = 12;
-    [[margin,margin],[margin+rW,margin],[margin,margin+rH],[margin+rW,margin+rH]].forEach(([cx,cy]) => {
-      g.beginPath();
-      g.moveTo(cx-cs, cy); g.lineTo(cx, cy); g.lineTo(cx, cy-cs); g.strokePath();
-      g.beginPath();
-      g.moveTo(cx+cs, cy); g.lineTo(cx, cy); g.lineTo(cx, cy+cs); g.strokePath();
+    const m=30;
+    g.lineStyle(1,0x6366f1,0.3);
+    g.strokeRect(m,HUD+m,W-m*2,H-HUD-LOG-m*2);
+    // Corner brackets
+    g.lineStyle(2,0x6366f1,0.9);
+    const c=16;
+    [[m,HUD+m],[W-m,HUD+m],[m,H-LOG-m],[W-m,H-LOG-m]].forEach(([cx,cy])=>{
+      g.beginPath();g.moveTo(cx,cy+c);g.lineTo(cx,cy);g.lineTo(cx+c,cy);g.strokePath();
+      g.beginPath();g.moveTo(cx,cy-c);g.lineTo(cx,cy);g.lineTo(cx-c,cy);g.strokePath();
     });
   }
 
-  drawFurniture(W, H) {
-    const g = this.furnitureLayer;
-    g.clear();
-    const cx = W / 2;
-    const cy = H / 2;
-    const HUD_H = 32;
-    const LOG_H = 80;
-    const avail = H - HUD_H - LOG_H;
-    const midY = HUD_H + avail / 2;
-
-    // Store desk positions for agent placement
-    this.deskPositions = {
-      orchestrator: { x: cx, y: midY - 20 },
-      coder: { x: cx - W * 0.28, y: midY + 30 },
-      analyst: { x: cx + W * 0.28, y: midY + 30 },
-    };
-
-    // === ORCHESTRATOR DESK (center top) ===
-    this.drawDesk(g, cx, midY - 20, 0x6366f1, 'MGR');
-
-    // === CODER DESK (left) ===
-    this.drawDesk(g, cx - W * 0.28, midY + 30, 0x10b981, 'DEV');
-
-    // === ANALYST DESK (right) ===
-    this.drawDesk(g, cx + W * 0.28, midY + 30, 0xf59e0b, 'ANL');
-
-    // === DECOR ===
-    // Plants (corners)
-    [[W*0.1, midY - avail*0.35], [W*0.9, midY - avail*0.35],
-     [W*0.1, midY + avail*0.3],  [W*0.9, midY + avail*0.3]].forEach(([px,py]) => {
-      this.drawPlant(g, px, py);
-    });
-
+  drawDecor(W,H,HUD,aH){
+    const g=this.gFurni;
+    const btm=HUD+aH;
+    // Plants
+    [[W*0.08,HUD+aH*0.2],[W*0.92,HUD+aH*0.2],[W*0.08,HUD+aH*0.75],[W*0.92,HUD+aH*0.75]]
+      .forEach(([x,y])=>this.drawPlant(g,x,y));
+    // Bookshelves top wall
+    [[W*0.35,HUD+32],[W*0.65,HUD+32]].forEach(([x,y])=>this.drawShelf(g,x,y));
     // Water cooler
-    this.drawWaterCooler(g, W * 0.5, HUD_H + 60);
-
-    // Bookshelf (back wall)
-    this.drawShelf(g, cx - 80, HUD_H + 52);
-    this.drawShelf(g, cx + 80, HUD_H + 52);
+    this.drawCooler(g,W/2,HUD+28);
+    // Meeting table center (decorative)
+    g.fillStyle(0x12122a);
+    g.fillRoundedRect(W/2-45,HUD+aH*0.5-18,90,36,6);
+    g.lineStyle(1,0x2a2a5a,0.8);
+    g.strokeRoundedRect(W/2-45,HUD+aH*0.5-18,90,36,6);
+    // Chairs around table
+    [[W/2-55,HUD+aH*0.5],[W/2+55,HUD+aH*0.5],[W/2,HUD+aH*0.5-28],[W/2,HUD+aH*0.5+28]]
+      .forEach(([cx,cy])=>{g.fillStyle(0x1a1a35);g.fillCircle(cx,cy,7);});
+    // Server rack
+    this.drawServerRack(g,W*0.93,HUD+aH*0.45);
   }
 
-  drawDesk(g, x, y, color, label) {
-    const dW = 88; const dH = 48;
-    // Drop shadow
-    g.fillStyle(0x000000, 0.4);
-    g.fillRect(x - dW/2 + 4, y - dH/2 + 4, dW, dH);
-    // Desk surface
-    g.fillStyle(color, 0.15);
-    g.fillRect(x - dW/2, y - dH/2, dW, dH);
-    // Desk border
-    g.lineStyle(1.5, color, 0.9);
-    g.strokeRect(x - dW/2, y - dH/2, dW, dH);
-    // Top edge highlight
-    g.lineStyle(2, color, 0.5);
-    g.beginPath();
-    g.moveTo(x - dW/2 + 2, y - dH/2 + 2);
-    g.lineTo(x + dW/2 - 2, y - dH/2 + 2);
-    g.strokePath();
-    // Monitor
-    const mW = 28; const mH = 20;
-    g.fillStyle(0x0a0a20);
-    g.fillRect(x - mW/2, y - dH/2 - mH + 2, mW, mH);
-    g.lineStyle(1, color, 0.6);
-    g.strokeRect(x - mW/2, y - dH/2 - mH + 2, mW, mH);
-    // Monitor screen glow
-    g.fillStyle(color, 0.08);
-    g.fillRect(x - mW/2 + 2, y - dH/2 - mH + 4, mW - 4, mH - 4);
+  drawDesk(g,x,y,color,label,status){
+    const W=100,H=52;
+    const isActive=status!=='idle'&&status!=='seated';
+    // Shadow
+    g.fillStyle(0x000000,0.5);
+    g.fillRect(x-W/2+5,y-H/2+5,W,H);
+    // Surface
+    g.fillStyle(color,isActive?0.2:0.1);
+    g.fillRect(x-W/2,y-H/2,W,H);
+    // Border
+    g.lineStyle(isActive?2:1,color,isActive?1:0.5);
+    g.strokeRect(x-W/2,y-H/2,W,H);
+    // Top highlight
+    g.lineStyle(1,color,0.4);
+    g.beginPath();g.moveTo(x-W/2+2,y-H/2+2);g.lineTo(x+W/2-2,y-H/2+2);g.strokePath();
+    // Monitor base
+    const mW=34,mH=24;
+    g.fillStyle(0x06060e);
+    g.fillRect(x-mW/2,y-H/2-mH+2,mW,mH);
+    g.lineStyle(1,color,0.7);
+    g.strokeRect(x-mW/2,y-H/2-mH+2,mW,mH);
+    // Monitor screen
+    g.fillStyle(color,isActive?0.15:0.04);
+    g.fillRect(x-mW/2+2,y-H/2-mH+4,mW-4,mH-4);
     // Monitor stand
     g.fillStyle(0x1a1a2e);
-    g.fillRect(x - 3, y - dH/2 + 2, 6, 4);
-    g.fillRect(x - 6, y - dH/2 + 5, 12, 2);
+    g.fillRect(x-3,y-H/2+2,6,5);
+    g.fillRect(x-7,y-H/2+6,14,2);
     // Keyboard
-    g.fillStyle(0x1e1e3a);
-    g.fillRect(x - 20, y + 4, 40, 10);
-    g.lineStyle(0.5, color, 0.3);
-    g.strokeRect(x - 20, y + 4, 40, 10);
-    // Coffee mug
+    g.fillStyle(0x1c1c38);
+    g.fillRect(x-22,y+5,44,11);
+    g.lineStyle(0.5,color,0.2);
+    g.strokeRect(x-22,y+5,44,11);
+    // Mug
     g.fillStyle(0x2d1a0a);
-    g.fillRect(x + dW/2 - 14, y - 4, 8, 10);
-    g.fillStyle(0xc45c00, 0.6);
-    g.fillRect(x + dW/2 - 13, y - 3, 6, 3);
+    g.fillRect(x+W/2-16,y-5,9,11);
+    g.fillStyle(0xb05010,0.5);
+    g.fillRect(x+W/2-15,y-4,7,4);
     // Chair
-    g.fillStyle(0x1a1a2e);
-    g.fillRect(x - 14, y + dH/2 + 2, 28, 14);
-    g.lineStyle(1, color, 0.2);
-    g.strokeRect(x - 14, y + dH/2 + 2, 28, 14);
+    g.fillStyle(0x181830);
+    g.fillRect(x-16,y+H/2+3,32,15);
+    g.lineStyle(1,color,0.15);
+    g.strokeRect(x-16,y+H/2+3,32,15);
   }
 
-  drawPlant(g, x, y) {
-    // Pot
-    g.fillStyle(0x3d2b1f);
-    g.fillRect(x - 8, y - 4, 16, 14);
-    g.lineStyle(1, 0x5a3d2a, 0.8);
-    g.strokeRect(x - 8, y - 4, 16, 14);
-    // Leaves
-    g.fillStyle(0x1a4d2e);
-    g.fillCircle(x, y - 10, 12);
-    g.fillStyle(0x1f6035);
-    g.fillCircle(x - 6, y - 14, 8);
-    g.fillStyle(0x22703d);
-    g.fillCircle(x + 5, y - 13, 9);
-    g.fillStyle(0x28854a);
-    g.fillCircle(x, y - 18, 7);
+  drawPlant(g,x,y){
+    g.fillStyle(0x3d2b1f);g.fillRect(x-9,y-3,18,15);
+    g.lineStyle(1,0x5a3d2a,0.7);g.strokeRect(x-9,y-3,18,15);
+    g.fillStyle(0x1a4d2e);g.fillCircle(x,y-12,13);
+    g.fillStyle(0x1f6035);g.fillCircle(x-7,y-16,9);
+    g.fillStyle(0x22703d);g.fillCircle(x+6,y-15,10);
+    g.fillStyle(0x28854a);g.fillCircle(x,y-20,7);
   }
 
-  drawWaterCooler(g, x, y) {
-    g.fillStyle(0x1a2a4a);
-    g.fillRect(x - 10, y - 20, 20, 32);
-    g.lineStyle(1, 0x3a5a8a, 0.8);
-    g.strokeRect(x - 10, y - 20, 20, 32);
-    // Water bottle
-    g.fillStyle(0x60a5fa, 0.4);
-    g.fillRect(x - 6, y - 28, 12, 12);
-    g.lineStyle(1, 0x93c5fd, 0.6);
-    g.strokeRect(x - 6, y - 28, 12, 12);
-    // Tap
-    g.fillStyle(0x6366f1);
-    g.fillRect(x - 4, y - 4, 8, 4);
-  }
-
-  drawShelf(g, x, y) {
-    const sW = 60; const sH = 40;
-    g.fillStyle(0x2d1a0a);
-    g.fillRect(x - sW/2, y - sH, sW, sH);
-    g.lineStyle(1, 0x5a3d2a, 0.6);
-    g.strokeRect(x - sW/2, y - sH, sW, sH);
-    // Shelf divider
-    g.fillStyle(0x3d2b1f);
-    g.fillRect(x - sW/2, y - sH/2, sW, 2);
-    // Books (colorful)
-    const colors = [0x6366f1, 0x10b981, 0xf59e0b, 0xec4899, 0x3b82f6, 0x8b5cf6];
-    let bx = x - sW/2 + 4;
-    colors.forEach((c, i) => {
-      const bW = Phaser.Math.Between(7, 11);
-      g.fillStyle(c, 0.8);
-      g.fillRect(bx, y - sH + 4, bW, sH/2 - 6);
-      bx += bW + 1;
+  drawShelf(g,x,y){
+    const sW=64,sH=44;
+    g.fillStyle(0x2d1a0a);g.fillRect(x-sW/2,y,sW,sH);
+    g.lineStyle(1,0x5a3d2a,0.5);g.strokeRect(x-sW/2,y,sW,sH);
+    g.fillStyle(0x3d2b1f);g.fillRect(x-sW/2,y+sH/2,sW,2);
+    const books=[0x6366f1,0x10b981,0xf59e0b,0xec4899,0x3b82f6,0x8b5cf6,0xef4444];
+    let bx=x-sW/2+3;
+    books.forEach(c=>{
+      const bW=Phaser.Math.Between(7,10);
+      g.fillStyle(c,0.85);g.fillRect(bx,y+3,bW,sH/2-5);
+      bx+=bW+1;
+      if(bx>x+sW/2-4)return;
     });
   }
 
-  // ----------------------------------------------------------------
-  // Agent pixel characters
-  // ----------------------------------------------------------------
-  createAgents(W, H) {
-    const agentDefs = [
-      { key: 'orchestrator', color: 0x6366f1, skinColor: 0xfdbcb4 },
-      { key: 'coder',        color: 0x10b981, skinColor: 0xfdc9a0 },
-      { key: 'analyst',      color: 0xf59e0b, skinColor: 0xf5d5a0 },
-    ];
+  drawCooler(g,x,y){
+    g.fillStyle(0x1a2a4a);g.fillRect(x-11,y,22,35);
+    g.lineStyle(1,0x3a5a8a,0.8);g.strokeRect(x-11,y,22,35);
+    g.fillStyle(0x60a5fa,0.35);g.fillRect(x-7,y-12,14,14);
+    g.lineStyle(1,0x93c5fd,0.5);g.strokeRect(x-7,y-12,14,14);
+    g.fillStyle(0x6366f1);g.fillRect(x-5,y+12,10,5);
+  }
 
-    agentDefs.forEach(({ key, color, skinColor }) => {
-      const desk = this.deskPositions[key];
-      // Start agents at door/center, they'll walk to desk
-      const startX = W / 2 + Phaser.Math.Between(-30, 30);
-      const startY = H / 2 + Phaser.Math.Between(-20, 20);
+  drawServerRack(g,x,y){
+    g.fillStyle(0x0a1020);g.fillRect(x-16,y-40,32,80);
+    g.lineStyle(1,0x1e3a5a,0.9);g.strokeRect(x-16,y-40,32,80);
+    for(let i=0;i<5;i++){
+      g.fillStyle(i%2===0?0x0d1f38:0x091428);
+      g.fillRect(x-13,y-35+i*14,26,12);
+      g.fillStyle(i<2?0x4ade80:0x6366f1,0.7);
+      g.fillCircle(x+8,y-29+i*14,2);
+    }
+  }
 
-      const container = this.add.container(startX, startY);
-      const sprite = this.createCharacterGraphic(color, skinColor);
-      container.add(sprite);
-
-      // Name tag
-      const nameTag = this.add.text(0, -28, AGENTS[key].label, {
-        fontSize: '8px',
-        fontFamily: 'Courier New',
-        color: '#' + color.toString(16).padStart(6,'0'),
-        backgroundColor: 'rgba(5,5,18,0.9)',
-        padding: { x:3, y:1 },
+  // Characters
+  createAgents(W,H){
+    Object.entries(AGENTS).forEach(([key,a])=>{
+      const desk=this.desks[key];
+      const sx=W/2+Phaser.Math.Between(-40,40);
+      const sy=H/2+Phaser.Math.Between(-20,20);
+      const c=this.add.container(sx,sy);
+      const sprite=this.add.graphics();
+      c.add(sprite);
+      // Name label
+      const tag=this.add.text(0,-32,a.label,{
+        fontSize:'9px',fontFamily:'Courier New',
+        color:a.color,backgroundColor:'rgba(5,5,16,0.92)',
+        padding:{x:4,y:1},
       }).setOrigin(0.5);
-      container.add(nameTag);
-
-      // Status indicator dot
-      const dot = this.add.graphics();
-      dot.fillStyle(color, 1);
-      dot.fillCircle(8, -16, 3);
-      container.add(dot);
-
-      this.agents[key] = {
-        container, sprite, nameTag, dot,
-        color, skinColor,
-        deskX: desk.x, deskY: desk.y,
-        status: 'idle',
-        tween: null,
-        walkTimer: 0,
-        frame: 0,
-        frameTimer: 0,
-        bubbleTimer: 0,
-      };
-
-      // Walk to desk on spawn
-      this.walkToDeskDelayed(key, Phaser.Math.Between(300, 1200));
+      c.add(tag);
+      // Status dot
+      const dot=this.add.graphics();
+      dot.fillStyle(a.hex,1);dot.fillCircle(10,-20,3);
+      c.add(dot);
+      this.agents[key]={container:c,sprite,tag,dot,color:a.hex,skin:a.skin,
+        status:'idle',frame:0,frameTimer:0,walkTimer:0,tween:null,deskX:desk.x,deskY:desk.y};
+      this.time.delayedCall(Phaser.Math.Between(200,900),()=>this.walkToDesk(key));
     });
   }
 
-  createCharacterGraphic(bodyColor, skinColor) {
-    const g = this.add.graphics();
-    this.drawCharacter(g, bodyColor, skinColor, 'idle', 0);
-    return g;
-  }
-
-  drawCharacter(g, bodyColor, skinColor, status, frame) {
+  drawChar(g,color,skin,status,frame){
     g.clear();
-    const bobY = status === 'idle' ? 0 : Math.sin(frame * 0.3) * 1.5;
-    const isTyping = status === 'coding' || status === 'working';
-    const isThinking = status === 'thinking';
-
+    const bob=(status==='idle'||status==='seated')?0:Math.sin(frame*0.28)*1.5;
+    const typing=status==='coding'||status==='working';
+    const thinking=status==='thinking'||status==='synthesizing';
+    const walking=status==='walking';
     // Shadow
-    g.fillStyle(0x000000, 0.3);
-    g.fillEllipse(0, 14, 18, 5);
-
-    // Body (shirt)
-    g.fillStyle(bodyColor, 1);
-    g.fillRect(-6, -4 + bobY, 12, 12);
-
+    g.fillStyle(0x000000,0.25);g.fillEllipse(0,18,20,6);
+    // Body
+    g.fillStyle(color,1);g.fillRect(-7,-2+bob,14,13);
+    // Collar
+    g.fillStyle(0xffffff,0.15);g.fillRect(-3,-2+bob,6,3);
     // Head
-    g.fillStyle(skinColor);
-    g.fillRect(-5, -16 + bobY, 10, 10);
+    g.fillStyle(skin);g.fillRect(-6,-16+bob,12,12);
     // Hair
-    g.fillStyle(bodyColor, 0.8);
-    g.fillRect(-5, -16 + bobY, 10, 3);
+    g.fillStyle(color,0.9);g.fillRect(-6,-16+bob,12,4);
     // Eyes
-    g.fillStyle(0x1a1a1a);
-    if (isThinking) {
-      // Squinting/thinking eyes
-      g.fillRect(-3, -10 + bobY, 2, 1);
-      g.fillRect(1, -10 + bobY, 2, 1);
-    } else {
-      g.fillRect(-3, -10 + bobY, 2, 2);
-      g.fillRect(1, -10 + bobY, 2, 2);
+    g.fillStyle(0x111111);
+    if(thinking){
+      g.fillRect(-3,-9+bob,3,1);g.fillRect(1,-9+bob,3,1);
+    }else{
+      g.fillRect(-3,-9+bob,3,2);g.fillRect(1,-9+bob,3,2);
     }
-    // Glasses for analyst
-    if (skinColor === 0xf5d5a0) {
-      g.lineStyle(0.8, 0x888888, 0.9);
-      g.strokeRect(-4, -11 + bobY, 3, 2);
-      g.strokeRect(1, -11 + bobY, 3, 2);
-      g.beginPath();
-      g.moveTo(-1, -10 + bobY); g.lineTo(1, -10 + bobY); g.strokePath();
+    // Glasses (analyst has yellow = 0xf59e0b)
+    if(color===0xf59e0b){
+      g.lineStyle(1,0x999999,0.9);
+      g.strokeRect(-4,-10+bob,4,3);g.strokeRect(1,-10+bob,4,3);
+      g.beginPath();g.moveTo(0,-8+bob);g.lineTo(1,-8+bob);g.strokePath();
     }
-
     // Arms
-    if (isTyping) {
-      const armY = Math.sin(frame * 0.5) * 2;
-      g.fillStyle(skinColor);
-      g.fillRect(-10, 0 + bobY + armY, 4, 6);
-      g.fillRect(6, 0 + bobY - armY, 4, 6);
-    } else {
-      g.fillStyle(skinColor);
-      g.fillRect(-10, 0 + bobY, 4, 8);
-      g.fillRect(6, 0 + bobY, 4, 8);
+    if(typing){
+      const av=Math.sin(frame*0.5)*2;
+      g.fillStyle(skin);g.fillRect(-11,1+bob+av,5,7);g.fillRect(6,1+bob-av,5,7);
+    }else if(walking){
+      const av=Math.sin(frame*0.45)*4;
+      g.fillStyle(skin);g.fillRect(-11,0+bob,5,7+av);g.fillRect(6,0+bob,5,7-av);
+    }else{
+      g.fillStyle(skin);g.fillRect(-11,0+bob,5,9);g.fillRect(6,0+bob,5,9);
     }
-
     // Legs
-    const legSwing = status !== 'idle' && status !== 'done' ?
-      Math.sin(frame * 0.4) * 3 : 0;
-    g.fillStyle(0x1a1a2e);
-    g.fillRect(-5, 8 + bobY, 4, 8 + legSwing);
-    g.fillRect(1, 8 + bobY, 4, 8 - legSwing);
-
+    const ls=walking?Math.sin(frame*0.45)*4:0;
+    g.fillStyle(0x181830);
+    g.fillRect(-5,11+bob,5,9+ls);g.fillRect(1,11+bob,5,9-ls);
     // Shoes
-    g.fillStyle(bodyColor, 0.6);
-    g.fillRect(-6, 15 + bobY, 5, 3);
-    g.fillRect(1, 15 + bobY, 5, 3);
-
-    // Laptop/tool indicator when working
-    if (isTyping) {
-      g.fillStyle(0x0a0a20);
-      g.fillRect(-8, 4 + bobY, 16, 10);
-      g.lineStyle(1, bodyColor, 0.8);
-      g.strokeRect(-8, 4 + bobY, 16, 10);
-      // Screen content animation
-      g.fillStyle(bodyColor, 0.3);
-      const lineW = (frame % 12) + 2;
-      g.fillRect(-6, 6 + bobY, lineW, 1);
-      g.fillRect(-6, 8 + bobY, Math.max(lineW - 3, 2), 1);
-      g.fillRect(-6, 10 + bobY, lineW - 1, 1);
+    g.fillStyle(color,0.5);
+    g.fillRect(-6,19+bob,6,3);g.fillRect(1,19+bob,6,3);
+    // Laptop when coding
+    if(typing){
+      g.fillStyle(0x06060e);g.fillRect(-10,5+bob,20,12);
+      g.lineStyle(1,color,0.9);g.strokeRect(-10,5+bob,20,12);
+      g.fillStyle(color,0.25);
+      const lw=(frame%14)+1;
+      g.fillRect(-8,7+bob,lw,1);g.fillRect(-8,9+bob,Math.max(lw-4,1),1);g.fillRect(-8,11+bob,lw-2,1);
     }
-
-    // Thinking bubble
-    if (isThinking) {
-      g.fillStyle(0xffffff, 0.9);
-      g.fillCircle(12, -18 + bobY, 3);
-      g.fillCircle(15, -22 + bobY, 2);
-      g.fillCircle(17, -25 + bobY, 1.5);
+    // Thought bubble
+    if(thinking){
+      g.fillStyle(0xffffff,0.85);
+      g.fillCircle(14,-20+bob,4);g.fillCircle(17,-25+bob,2.5);g.fillCircle(19,-29+bob,1.5);
     }
   }
 
-  walkToDeskDelayed(key, delay) {
-    this.time.delayedCall(delay, () => this.walkToDesk(key));
-  }
-
-  walkToDesk(key) {
-    const agent = this.agents[key];
-    if (!agent) return;
-    const { container, deskX, deskY } = agent;
-    // Sit just above the desk
-    const targetX = deskX;
-    const targetY = deskY - 30;
-    if (agent.tween) agent.tween.stop();
-    const dist = Phaser.Math.Distance.Between(container.x, container.y, targetX, targetY);
-    const duration = Math.max(800, dist * 4);
-    agent.status = 'walking';
-    agent.tween = this.tweens.add({
-      targets: container,
-      x: targetX, y: targetY,
-      duration,
-      ease: 'Linear',
-      onComplete: () => { agent.status = 'seated'; }
+  walkToDesk(key){
+    const ag=this.agents[key]; if(!ag)return;
+    const tx=ag.deskX,ty=ag.deskY-35;
+    if(ag.tween)ag.tween.stop();
+    const dist=Phaser.Math.Distance.Between(ag.container.x,ag.container.y,tx,ty);
+    ag.status='walking';
+    ag.tween=this.tweens.add({
+      targets:ag.container,x:tx,y:ty,
+      duration:Math.max(600,dist*3.5),ease:'Sine.easeInOut',
+      onComplete:()=>{ag.status='seated';}
     });
   }
 
-  // ----------------------------------------------------------------
-  // Speech bubble
-  // ----------------------------------------------------------------
-  showBubble(key, text) {
-    if (this.bubbles[key]) {
-      this.bubbles[key].destroy();
-      delete this.bubbles[key];
-    }
-    const agent = this.agents[key];
-    if (!agent) return;
-    const { container } = agent;
-    const aColor = agent.color;
-
-    const maxLen = 28;
-    const display = text.length > maxLen ? text.slice(0, maxLen) + '...' : text;
-    const bW = Math.max(60, display.length * 5.5 + 16);
-    const bH = 22;
-
-    const bubble = this.add.container(container.x, container.y - 40);
-    const bg = this.add.graphics();
-    bg.fillStyle(0x0d0d1f, 0.95);
-    bg.fillRoundedRect(-bW/2, -bH/2, bW, bH, 6);
-    bg.lineStyle(1, aColor, 0.8);
-    bg.strokeRoundedRect(-bW/2, -bH/2, bW, bH, 6);
-    // Tail
-    bg.fillStyle(0x0d0d1f, 0.95);
-    bg.fillTriangle(-4, bH/2, 4, bH/2, 0, bH/2 + 6);
-    bg.lineStyle(1, aColor, 0.6);
-    bg.beginPath();
-    bg.moveTo(-4, bH/2); bg.lineTo(0, bH/2 + 6); bg.lineTo(4, bH/2); bg.strokePath();
-
-    const label = this.add.text(0, 0, display, {
-      fontSize: '8px', fontFamily: 'Courier New',
-      color: '#ffffff', align: 'center',
+  showBubble(key,text){
+    if(this.bubbles[key]){this.bubbles[key].destroy();delete this.bubbles[key];}
+    const ag=this.agents[key]; if(!ag)return;
+    const {container,color}=ag;
+    const maxLen=32;
+    const display=text.length>maxLen?text.slice(0,maxLen)+'\u2026':text;
+    const bW=Math.max(70,display.length*5.2+20),bH=24;
+    const bub=this.add.container(container.x,container.y-48);
+    const bg=this.add.graphics();
+    bg.fillStyle(0x050510,0.97);
+    bg.fillRoundedRect(-bW/2,-bH/2,bW,bH,7);
+    bg.lineStyle(1.5,color,1);
+    bg.strokeRoundedRect(-bW/2,-bH/2,bW,bH,7);
+    bg.fillStyle(0x050510,0.97);
+    bg.fillTriangle(-5,bH/2,5,bH/2,0,bH/2+7);
+    bg.lineStyle(1,color,0.7);
+    bg.beginPath();bg.moveTo(-5,bH/2);bg.lineTo(0,bH/2+7);bg.lineTo(5,bH/2);bg.strokePath();
+    const lbl=this.add.text(0,0,display,{
+      fontSize:'8px',fontFamily:'Courier New',color:'#ffffff',align:'center',
     }).setOrigin(0.5);
-
-    bubble.add([bg, label]);
-    this.bubbles[key] = bubble;
-
-    // Auto-dismiss after 4s
-    this.time.delayedCall(4000, () => {
-      if (this.bubbles[key] === bubble) {
-        this.tweens.add({ targets: bubble, alpha: 0, duration: 500, onComplete: () => bubble.destroy() });
+    bub.add([bg,lbl]);
+    this.bubbles[key]=bub;
+    this.time.delayedCall(4500,()=>{
+      if(this.bubbles[key]===bub){
+        this.tweens.add({targets:bub,alpha:0,duration:400,onComplete:()=>bub.destroy()});
         delete this.bubbles[key];
       }
     });
   }
 
-  // ----------------------------------------------------------------
-  // Agent event handler (called from WS)
-  // ----------------------------------------------------------------
-  onAgentEvent(agentKey, status, msg) {
-    const agent = this.agents[agentKey];
-    if (!agent) return;
-    agent.status = status;
-
-    // Show speech bubble for notable events
-    if (msg && status !== 'idle' && status !== 'done') {
-      this.showBubble(agentKey, msg);
-    }
-    if (status === 'done') {
-      this.showBubble(agentKey, '\u2713 Done!');
-    }
-
-    // Move agent based on status
-    if (status === 'walking' || status === 'working' || status === 'coding' || status === 'searching') {
-      this.walkToDesk(agentKey);
-    } else if (status === 'idle') {
-      // Wander slightly
-      const a = this.agents[agentKey];
-      if (a && a.status !== 'walking') {
-        this.time.delayedCall(Phaser.Math.Between(500, 1500), () => {
-          if (a.status === 'idle') this.walkToDesk(agentKey);
-        });
-      }
-    }
+  onAgentEvent(key,status,msg){
+    const ag=this.agents[key]; if(!ag)return;
+    ag.status=status;
+    if(msg&&status!=='idle'&&status!=='done')this.showBubble(key,msg);
+    if(status==='done')this.showBubble(key,'\u2713 Done!');
+    if(['working','coding','searching','walking'].includes(status))this.walkToDesk(key);
+    // Redraw desk glow
+    this.drawAll(this.W,this.H);
+    if(this.agents)Object.entries(this.agents).forEach(([k,a])=>{a.deskX=this.desks[k].x;a.deskY=this.desks[k].y;});
   }
 
-  // ----------------------------------------------------------------
-  // Update loop
-  // ----------------------------------------------------------------
-  update(time, delta) {
-    const dt = delta / 1000;
-
-    Object.entries(this.agents).forEach(([key, agent]) => {
-      const { container, sprite, color, skinColor, status } = agent;
-
-      // Animate character
-      agent.frameTimer += dt * 60;
-      if (agent.frameTimer > 6) {
-        agent.frame++;
-        agent.frameTimer = 0;
+  update(_t,delta){
+    const dt=delta/1000;
+    this.glowTime+=dt;
+    Object.entries(this.agents).forEach(([key,ag])=>{
+      ag.frameTimer+=dt*60;
+      if(ag.frameTimer>5){ag.frame++;ag.frameTimer=0;}
+      this.drawChar(ag.sprite,ag.color,ag.skin,ag.status,ag.frame);
+      if(this.bubbles[key]){
+        this.bubbles[key].x=ag.container.x;
+        this.bubbles[key].y=ag.container.y-50;
       }
-
-      // Redraw sprite
-      const effectiveStatus = agent.status;
-      this.drawCharacter(sprite, color, skinColor, effectiveStatus, agent.frame);
-
-      // Update bubble position to follow agent
-      if (this.bubbles[key]) {
-        this.bubbles[key].x = container.x;
-        this.bubbles[key].y = container.y - 42;
-      }
-
-      // Idle wandering animation
-      if (agent.status === 'seated' || agent.status === 'idle') {
-        agent.walkTimer += dt;
-        if (agent.walkTimer > 8 + Phaser.Math.Between(0, 4)) {
-          agent.walkTimer = 0;
-          // Brief stand-up and sit back down
-          const origY = container.y;
-          this.tweens.add({
-            targets: container,
-            y: origY - 8,
-            duration: 400,
-            yoyo: true,
-            ease: 'Sine.easeInOut'
-          });
+      // Idle stretch
+      if((ag.status==='seated'||ag.status==='idle')&&!ag.tween?.isPlaying()){
+        ag.walkTimer+=dt;
+        if(ag.walkTimer>10+Math.random()*5){
+          ag.walkTimer=0;
+          const oy=ag.container.y;
+          this.tweens.add({targets:ag.container,y:oy-6,duration:300,yoyo:true,ease:'Sine.easeInOut'});
         }
       }
     });
-
-    // Ambient screen flicker on active monitors
-    // (handled via desk color animation on furnitureLayer)
+    // Animate active monitor screens
+    const g=this.gGlow;
+    g.clear();
+    Object.entries(this.agents).forEach(([key,ag])=>{
+      if(ag.status==='coding'||ag.status==='working'){
+        const desk=this.desks[key];
+        const flicker=Math.sin(this.glowTime*8+key.length)*0.5+0.5;
+        g.fillStyle(ag.color,0.06+flicker*0.08);
+        const mW=34,mH=24;
+        g.fillRect(desk.x-mW/2+2,desk.y-52/2-mH+4,mW-4,mH-4);
+        // Desk area glow
+        g.fillStyle(ag.color,0.03+flicker*0.04);
+        g.fillRect(desk.x-55,desk.y-35,110,70);
+      }
+    });
   }
 
-  onResize() {
-    const W = this.scale.width;
-    const H = this.scale.height;
-    this.drawFloor(W, H);
-    this.drawFurniture(W, H);
-    // Reposition agents to new desk positions
-    Object.entries(this.agents).forEach(([key, agent]) => {
-      const desk = this.deskPositions[key];
-      agent.deskX = desk.x;
-      agent.deskY = desk.y;
-      this.walkToDesk(key);
+  onResize(W,H){
+    this.W=W;this.H=H;
+    this.drawAll(W,H);
+    Object.entries(this.agents).forEach(([k,ag])=>{
+      ag.deskX=this.desks[k].x;ag.deskY=this.desks[k].y;
+      this.walkToDesk(k);
     });
   }
 }
 
-// -----------------------------------------------------------------------
-// Boot & launch Phaser
-// -----------------------------------------------------------------------
-const config = {
-  type: Phaser.AUTO,
-  parent: 'game-container',
-  width: window.innerWidth,
-  height: window.innerHeight,
-  backgroundColor: '#0a0a14',
-  scene: OfficeScene,
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  render: {
-    pixelArt: true,
-    antialias: false,
-    roundPixels: true,
-  },
+const cfg={
+  type:Phaser.AUTO,parent:'game-container',
+  width:window.innerWidth,height:window.innerHeight-40-72,
+  backgroundColor:'#050510',
+  scene:OfficeScene,
+  scale:{mode:Phaser.Scale.RESIZE,autoCenter:Phaser.Scale.CENTER_BOTH},
+  render:{pixelArt:true,antialias:false,roundPixels:true},
 };
-
-const game = new Phaser.Game(config);
-
-// Resize handler
-window.addEventListener('resize', () => {
-  game.scale.resize(window.innerWidth, window.innerHeight);
-});
+window.game=new Phaser.Game(cfg);
+window.addEventListener('resize',()=>window.game.scale.resize(window.innerWidth,window.innerHeight-40-72));
 </script>
 </body>
 </html>
