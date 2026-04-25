@@ -21,9 +21,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 PORT         = int(os.getenv("PORT", 3000))
 GITHUB_USER  = "kale87"
 
-# ---------------------------------------------------------------------------
-# GitHub API
-# ---------------------------------------------------------------------------
 async def gh(method: str, endpoint: str, body: dict = None) -> dict:
     headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "User-Agent": "kal-ai/1.0",
                "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
@@ -35,19 +32,26 @@ async def gh(method: str, endpoint: str, body: dict = None) -> dict:
         return data
 
 # ---------------------------------------------------------------------------
-# Smart GitHub intent parser
-# Detects what the user wants and calls GitHub API directly
-# No model involved in tool selection
+# GitHub intent detection — pure Python, no model involved
 # ---------------------------------------------------------------------------
+GITHUB_TRIGGER = re.compile(
+    r'\b(repos?|repositor(?:y|ies)|branch(?:es)?|commit|push|pull.?request|\bpr\b|merge|'
+    r'file|files|folder|github|readme|clone|fork)\b',
+    re.IGNORECASE
+)
+
 def parse_github_intent(message: str):
     """
-    Returns (intent, params) or (None, None) if not a GitHub request.
-    intents: list_repos, list_files, read_file, list_branches,
-             commit_file, create_branch, list_prs, create_pr, merge_pr, merge_branch
+    Returns (intent, params) or (None, None).
+    Detects GitHub operations from natural language.
     """
     msg = message.lower().strip()
 
-    # Extract repo name from message: looks for patterns like "in X repo", "kale87/X", "my X repo", "X repository"
+    # Must mention a GitHub concept to be a GitHub task
+    if not GITHUB_TRIGGER.search(msg):
+        return None, None
+
+    # Extract repo name
     repo_match = (
         re.search(r'kale87/([\w.-]+)', message) or
         re.search(r'(?:in|my|the|for|of)\s+["\']?([\w.-]+)["\']?\s+repo', msg) or
@@ -56,25 +60,25 @@ def parse_github_intent(message: str):
     )
     repo = repo_match.group(1) if repo_match else None
 
-    # Extract file path
-    file_match = re.search(r'(?:file|read|open|show)\s+["\']?([\w./-]+\.[\w]+)["\']?', msg)
+    # Extract file path (e.g. README.md, src/App.js)
+    file_match = re.search(r'["\']?([\w./-]+\.[\w]{1,6})["\']?', msg)
     file_path = file_match.group(1) if file_match else None
 
-    # Extract branch
+    # Extract branch name
     branch_match = re.search(r'branch\s+["\']?([\w./-]+)["\']?', msg)
     branch = branch_match.group(1) if branch_match else None
 
-    # LIST REPOS
-    if re.search(r'(list|show|what are|get).{0,20}(my\s+)?repos?(?:itories)?', msg) and not repo:
+    # LIST REPOS — "list repos", "show my repos", "what repos do I have"
+    if re.search(r'(list|show|get|what).{0,25}repos?', msg) and not repo:
         return 'list_repos', {}
 
-    # LIST FILES (files/contents of a repo)
-    if repo and re.search(r'(list|show|what|files?|contents?|inside|explore|browse)', msg):
-        path_match = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir|path)', msg)
+    # LIST FILES — "files in X repo", "show X repo", "browse X"
+    if repo and re.search(r'(list|show|files?|contents?|inside|browse|explore|what.{0,10}in)', msg):
+        path_match = re.search(r'(?:in|inside|under)\s+(?:the\s+)?([\w/-]+)\s+(?:folder|directory|dir)', msg)
         path = path_match.group(1) if path_match else ""
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': path, 'branch': branch or ''}
 
-    # READ FILE
+    # READ FILE — "read README.md in X"
     if file_path and repo:
         return 'read_file', {'owner': GITHUB_USER, 'repo': repo, 'path': file_path, 'branch': branch or ''}
 
@@ -83,17 +87,20 @@ def parse_github_intent(message: str):
         return 'list_branches', {'owner': GITHUB_USER, 'repo': repo}
 
     # LIST PRs
-    if repo and re.search(r'(pull requests?|prs?|open prs?)', msg):
+    if repo and re.search(r'(pull.?request|\bpr\b)', msg):
         return 'list_prs', {'owner': GITHUB_USER, 'repo': repo, 'state': 'open'}
 
-    # Has a repo but unclear intent — default to list files
+    # Repo mentioned but no specific intent — show files
     if repo:
         return 'list_files', {'owner': GITHUB_USER, 'repo': repo, 'path': '', 'branch': ''}
+
+    # GitHub mentioned but no repo — list repos
+    if re.search(r'repos?|repositor', msg):
+        return 'list_repos', {}
 
     return None, None
 
 async def execute_intent(intent: str, params: dict) -> str:
-    """Execute a GitHub intent and return formatted markdown."""
     try:
         if intent == 'list_repos':
             data = await gh("GET", "/user/repos?sort=updated&per_page=50")
@@ -119,7 +126,7 @@ async def execute_intent(intent: str, params: dict) -> str:
                 for f in sorted(dirs,  key=lambda x: x['name']): lines.append(f"- \U0001f4c1 `{f['name']}/`")
                 for f in sorted(files, key=lambda x: x['name']): lines.append(f"- \U0001f4c4 `{f['name']}`")
                 return "\n".join(lines)
-            return f"Not a directory: {json.dumps(data)}"
+            return f"Not a directory."
 
         elif intent == 'read_file':
             owner, repo, path = params['owner'], params['repo'], params['path']
@@ -143,37 +150,24 @@ async def execute_intent(intent: str, params: dict) -> str:
             owner, repo = params['owner'], params['repo']
             state = params.get('state', 'open')
             data = await gh("GET", f"/repos/{owner}/{repo}/pulls?state={state}&per_page=20")
-            lines = [f"**{'Open' if state=='open' else state.title()} PRs in `{repo}`:**"]
-            if not data: lines.append("No PRs found.")
+            lines = [f"**Open PRs in `{repo}`:**"]
+            if not data: lines.append("No open PRs.")
             for p in data: lines.append(f"- #{p['number']} **{p['title']}** (`{p['head']['ref']}` \u2192 `{p['base']['ref']}`)") 
             return "\n".join(lines)
 
         else:
             return f"Unknown intent: {intent}"
-
     except Exception as e:
         return f"\u274c Error: {str(e)}"
 
-# ---------------------------------------------------------------------------
-# Agents
-# ---------------------------------------------------------------------------
 AGENTS = {
-    "manager": {"name":"Manager","emoji":"🎯","color":"#6366f1","system":"""You are the Manager agent of Kal-AI.
-For simple questions, answer directly.
-For complex tasks involving code or research, delegate:
-<delegate agent="coder">task</delegate>
-<delegate agent="researcher">task</delegate>
-<delegate agent="writer">task</delegate>
-NEVER invent information."""},
+    "manager": {"name":"Manager","emoji":"🎯","color":"#6366f1","system":"""You are the Manager agent of Kal-AI.\nFor simple questions, answer directly.\nFor complex tasks, delegate:\n<delegate agent=\"coder\">task</delegate>\n<delegate agent=\"researcher\">task</delegate>\n<delegate agent=\"writer\">task</delegate>\nNEVER invent information."""},
     "coder":      {"name":"Coder",     "emoji":"💻","color":"#10b981","system":"You are the Coder agent. Write clean code, fix bugs, and explain technical concepts clearly."},
     "researcher": {"name":"Researcher","emoji":"🔍","color":"#f59e0b","system":"You are the Researcher agent. Gather and analyze information clearly."},
     "writer":     {"name":"Writer",    "emoji":"✍️", "color":"#ec4899","system":"You are the Writer agent. Write clear documentation and content."},
 }
 AGENT_KEYS = list(AGENTS.keys())
 
-# ---------------------------------------------------------------------------
-# Database
-# ---------------------------------------------------------------------------
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "sessions.db"
@@ -208,9 +202,6 @@ def get_skills(agent_key):
 def build_system(agent_key):
     return AGENTS[agent_key]["system"] + get_skills(agent_key)
 
-# ---------------------------------------------------------------------------
-# Ollama
-# ---------------------------------------------------------------------------
 async def ollama_stream(system, messages) -> AsyncGenerator[str, None]:
     payload = {"model":OLLAMA_MODEL,"messages":[{"role":"system","content":system}]+messages,"stream":True}
     async with httpx.AsyncClient(timeout=120) as client:
@@ -222,9 +213,6 @@ async def ollama_stream(system, messages) -> AsyncGenerator[str, None]:
                     if chunk: yield chunk
                 except: pass
 
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
 app = FastAPI(title="Kal-AI")
 
 @app.get("/health")
@@ -288,9 +276,6 @@ async def delete_skill(skill_id: int):
         conn.commit()
     return {"ok":True}
 
-# ---------------------------------------------------------------------------
-# Chat
-# ---------------------------------------------------------------------------
 @app.post("/chat")
 async def chat(request: Request):
     body       = await request.json()
@@ -306,7 +291,7 @@ async def chat(request: Request):
         history.append({"role":"user","content":message,"agent":"user"})
         chat_msgs = [{"role":m["role"],"content":m["content"]} for m in history if m["role"] in ("user","assistant")]
 
-        # FAST PATH: detect GitHub intent and execute directly
+        # FAST PATH: GitHub intent detected — execute directly, no model
         intent, params = parse_github_intent(message)
         if intent:
             yield sse({"type":"status","agent":"coder","status":"working"})
@@ -322,7 +307,7 @@ async def chat(request: Request):
             for k in AGENT_KEYS: yield sse({"type":"status","agent":k,"status":"idle"})
             return
 
-        # NORMAL PATH: Manager with streaming
+        # NORMAL PATH: Manager
         yield sse({"type":"status","agent":"manager","status":"thinking"})
         manager_response = ""
         async for chunk in ollama_stream(build_system("manager"), chat_msgs):
@@ -366,9 +351,6 @@ async def chat(request: Request):
 
     return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
 
-# ---------------------------------------------------------------------------
-# GitHub panel API
-# ---------------------------------------------------------------------------
 @app.get("/github/repos")
 async def gh_repos():
     try: return await gh("GET", "/user/repos?sort=updated&per_page=30")
